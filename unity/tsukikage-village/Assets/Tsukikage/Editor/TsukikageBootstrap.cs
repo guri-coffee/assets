@@ -62,7 +62,7 @@ namespace Tsukikage.EditorTools
             var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
 
             // 月光（青白い弱めの指向性ライト）
-            var moon = Object.FindObjectOfType<Light>();
+            var moon = Object.FindFirstObjectByType<Light>();
             moon.name = "Moon Light";
             moon.color = Hex("#8c9ef2");
             moon.intensity = 0.35f;
