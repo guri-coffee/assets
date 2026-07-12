@@ -6,9 +6,9 @@ using UnityEngine;
 namespace Tsukikage.EditorTools
 {
     /// <summary>
-    /// 町屋キット第1弾: 町屋1棟（Machiya_A）をプロシージャル生成する。
-    /// 壁・屋根・格子窓・縁側をモジュール分割し、プレハブとして保存する。
-    /// Tools > Tsukikage > 4 で生成、5 でスクリーンショット保存（レビュー用）。
+    /// 町屋キット: Machiya A〜E の5バリエーションをプロシージャル生成する。
+    /// 生成後は対応するブロックアウト町屋（House_A〜E）と自動で差し替わる。
+    /// Tools > Tsukikage > Machiya > Build X で1棟ずつ、5 でスクショ保存。
     /// </summary>
     public static class TsukikageMachiyaBuilder
     {
@@ -21,87 +21,154 @@ namespace Tsukikage.EditorTools
         // 仕様書のパレット
         static readonly Color Wood = FromHex("#8b4a2f");
         static readonly Color WoodDark = FromHex("#6e3a24");
-        static readonly Color Plaster = FromHex("#d8cfc0");
         static readonly Color Roof = FromHex("#2f3542");
         static readonly Color WarmLight = FromHex("#ffb347");
 
+        struct MachiyaConfig
+        {
+            public string id;
+            public float w, d;        // 1階の間口・奥行
+            public float h1;          // 1階の壁高
+            public bool twoStory;
+            public float h2;          // 2階の壁高
+            public bool ridgeAlongX;  // 大屋根の棟の向き（true=X方向）
+            public bool engawa;
+            public string plasterHex;
+            public float roofSteep;   // 屋根の勾配係数（幅×この値=高さ）
+            public int gfWindows;     // 1階正面の格子窓の数（1 or 2）
+        }
+
+        static MachiyaConfig Config(string id)
+        {
+            switch (id)
+            {
+                case "B": return new MachiyaConfig { id = "B", w = 5.2f, d = 3.4f, h1 = 2.6f, twoStory = false, ridgeAlongX = true, engawa = true, plasterHex = "#ded4c2", roofSteep = 0.22f, gfWindows = 2 };
+                case "C": return new MachiyaConfig { id = "C", w = 3.0f, d = 2.6f, h1 = 2.4f, twoStory = true, h2 = 1.4f, engawa = false, plasterHex = "#cfc8bd", roofSteep = 0.28f, gfWindows = 1 };
+                case "D": return new MachiyaConfig { id = "D", w = 3.4f, d = 3.0f, h1 = 2.0f, twoStory = false, engawa = false, plasterHex = "#d0bfa8", roofSteep = 0.32f, gfWindows = 1 };
+                case "E": return new MachiyaConfig { id = "E", w = 4.8f, d = 3.6f, h1 = 2.2f, twoStory = true, h2 = 1.3f, ridgeAlongX = true, engawa = true, plasterHex = "#c9c4bb", roofSteep = 0.24f, gfWindows = 2 };
+                default:  return new MachiyaConfig { id = "A", w = 4.0f, d = 3.0f, h1 = 2.2f, twoStory = true, h2 = 1.2f, engawa = true, plasterHex = "#d8cfc0", roofSteep = 0.25f, gfWindows = 2 };
+            }
+        }
+
+        [MenuItem("Tools/Tsukikage/Machiya/Build A")] public static void BuildA() { Build("A"); }
+        [MenuItem("Tools/Tsukikage/Machiya/Build B")] public static void BuildB() { Build("B"); }
+        [MenuItem("Tools/Tsukikage/Machiya/Build C")] public static void BuildC() { Build("C"); }
+        [MenuItem("Tools/Tsukikage/Machiya/Build D")] public static void BuildD() { Build("D"); }
+        [MenuItem("Tools/Tsukikage/Machiya/Build E")] public static void BuildE() { Build("E"); }
+
         // ---------------------------------------------------------------
-        [MenuItem("Tools/Tsukikage/4. Build Machiya A (Prefab)")]
-        public static void BuildMachiyaA()
+        static void Build(string id)
         {
             EnsureDirs();
+            Cleanup("Machiya_" + id);
 
+            var cfg = Config(id);
             var wood = GetOrCreateMat("Machiya_Wood", Wood);
             var woodDark = GetOrCreateMat("Machiya_WoodDark", WoodDark);
-            var plaster = GetOrCreateMat("Machiya_Plaster", Plaster);
+            var plaster = GetOrCreateMat("Machiya_Plaster_" + cfg.id, FromHex(cfg.plasterHex));
             var roof = GetOrCreateMat("Machiya_Roof", Roof);
             var window = GetOrCreateEmissiveMat("Machiya_Window", WarmLight, 2.4f);
 
-            var house = new GameObject("Machiya_A");
+            var house = new GameObject("Machiya_" + cfg.id);
+            float w = cfg.w, d = cfg.d, h1 = cfg.h1;
+            float gfTop = 0.2f + h1;
+            float zf = -(d * 0.5f + 0.03f);
 
-            // --- 土台（basewall: 石場建て風の低い基礎） ---
-            Box(house, woodDark, "Base", new Vector3(0f, 0.1f, 0f), new Vector3(4.2f, 0.2f, 3.2f));
+            // 土台
+            Box(house, woodDark, "Base", new Vector3(0f, 0.1f, 0f), new Vector3(w + 0.2f, 0.2f, d + 0.2f));
 
-            // --- 1階 漆喰壁 ---
-            Box(house, plaster, "Wall_GF", new Vector3(0f, 1.3f, 0f), new Vector3(4.0f, 2.2f, 3.0f));
+            // 1階 漆喰壁と柱
+            Box(house, plaster, "Wall_GF", new Vector3(0f, 0.2f + h1 * 0.5f, 0f), new Vector3(w, h1, d));
+            foreach (var sx in new[] { -1f, 1f })
+                foreach (var sz in new[] { -1f, 1f })
+                    Box(house, wood, "Pillar", new Vector3(sx * (w * 0.5f - 0.05f), 0.2f + h1 * 0.5f, sz * (d * 0.5f - 0.05f)), new Vector3(0.18f, h1, 0.18f));
 
-            // --- 1階 柱（四隅 + 正面中間） ---
-            float[] xs = { -1.95f, 1.95f };
-            float[] zs = { -1.45f, 1.45f };
-            foreach (var x in xs)
-                foreach (var z in zs)
-                    Box(house, wood, "Pillar", new Vector3(x, 1.3f, z), new Vector3(0.18f, 2.2f, 0.18f));
-            Box(house, wood, "Pillar_Mid", new Vector3(0f, 1.3f, -1.48f), new Vector3(0.15f, 2.2f, 0.12f));
+            // 正面: 引き戸 + 庇 + 格子窓（虫籠窓風・発光）
+            Box(house, woodDark, "Door", new Vector3(0f, 0.95f, zf), new Vector3(0.9f, 1.5f, 0.06f));
+            Box(house, roof, "Door_Hisashi", new Vector3(0f, 1.85f, -(d * 0.5f + 0.2f)), new Vector3(1.3f, 0.08f, 0.5f));
+            float winW = Mathf.Min(w * 0.27f, 1.2f);
+            float winY = 0.2f + h1 * 0.59f;
+            Lattice(house, wood, window, new Vector3(-w * 0.3f, winY, zf), winW, 0.9f);
+            if (cfg.gfWindows >= 2)
+                Lattice(house, wood, window, new Vector3(w * 0.3f, winY, zf), winW, 0.9f);
 
-            // --- 正面の格子窓（虫籠窓風・発光） ---
-            Lattice(house, wood, window, new Vector3(-1.0f, 1.5f, -1.53f), 1.2f, 0.9f);
-            Lattice(house, wood, window, new Vector3(1.0f, 1.5f, -1.53f), 1.2f, 0.9f);
+            // 縁側
+            if (cfg.engawa)
+            {
+                Box(house, wood, "Engawa", new Vector3(0f, 0.45f, -(d * 0.5f + 0.25f)), new Vector3(w - 0.4f, 0.1f, 0.5f));
+                Box(house, woodDark, "Engawa_Leg1", new Vector3(-(w * 0.5f - 0.4f), 0.2f, -(d * 0.5f + 0.25f)), new Vector3(0.12f, 0.4f, 0.12f));
+                Box(house, woodDark, "Engawa_Leg2", new Vector3(w * 0.5f - 0.4f, 0.2f, -(d * 0.5f + 0.25f)), new Vector3(0.12f, 0.4f, 0.12f));
+            }
 
-            // --- 入口（引き戸 + 暖簾の代わりの庇） ---
-            Box(house, woodDark, "Door", new Vector3(0f, 0.95f, -1.52f), new Vector3(0.9f, 1.5f, 0.06f));
-            Box(house, roof, "Door_Hisashi", new Vector3(0f, 1.85f, -1.7f), new Vector3(1.3f, 0.08f, 0.5f));
+            float roofBaseY, roofW, roofD;
+            if (cfg.twoStory)
+            {
+                // 2階（少し小さく・町屋らしい低い階高）
+                float w2 = w - 0.4f, d2 = d - 0.2f, h2 = cfg.h2;
+                Box(house, plaster, "Wall_1F", new Vector3(0f, gfTop + h2 * 0.5f, 0.1f), new Vector3(w2, h2, d2));
+                float zf2 = 0.1f - d2 * 0.5f - 0.03f;
+                Lattice(house, wood, window, new Vector3(0f, gfTop + h2 * 0.5f, zf2), Mathf.Min(w2 * 0.55f, 2.0f), h2 * 0.58f);
 
-            // --- 縁側（正面右） ---
-            Box(house, wood, "Engawa", new Vector3(0f, 0.45f, -1.75f), new Vector3(3.6f, 0.1f, 0.5f));
-            Box(house, woodDark, "Engawa_Leg1", new Vector3(-1.6f, 0.2f, -1.75f), new Vector3(0.12f, 0.4f, 0.12f));
-            Box(house, woodDark, "Engawa_Leg2", new Vector3(1.6f, 0.2f, -1.75f), new Vector3(0.12f, 0.4f, 0.12f));
+                // 中間庇
+                GableRoof(house, roof, "Hisashi_Mid", new Vector3(0f, gfTop + 0.1f, 0f), w + 0.6f, d + 0.8f, 0.35f, false);
 
-            // --- 2階（少し小さく・町屋らしい低い階高） ---
-            Box(house, plaster, "Wall_1F", new Vector3(0f, 3.0f, 0.1f), new Vector3(3.6f, 1.2f, 2.8f));
-            Lattice(house, wood, window, new Vector3(0f, 3.0f, -1.33f), 2.0f, 0.7f);
+                roofBaseY = gfTop + h2 + 0.1f;
+                roofW = w2 + 0.8f; roofD = d2 + 0.8f;
+            }
+            else
+            {
+                roofBaseY = gfTop + 0.1f;
+                roofW = w + 0.8f; roofD = d + 0.8f;
+            }
 
-            // --- 中間庇（1階と2階の間） ---
-            GableRoof(house, roof, "Hisashi_Mid", new Vector3(0f, 2.5f, 0f), 4.6f, 3.8f, 0.35f);
+            // 大屋根（切妻・軒の出あり）
+            GableRoof(house, roof, "Roof_Main", new Vector3(0f, roofBaseY, cfg.twoStory ? 0.1f : 0f), roofW, roofD, roofW * cfg.roofSteep, cfg.ridgeAlongX);
 
-            // --- 大屋根（切妻・軒の出あり） ---
-            GableRoof(house, roof, "Roof_Main", new Vector3(0f, 3.7f, 0.1f), 4.4f, 3.6f, 1.1f);
-
-            // --- 屋内の灯り（窓のエミッシブを補強するポイントライト1灯） ---
+            // 屋内の灯り
             var lightGo = new GameObject("Interior_Light");
             lightGo.transform.SetParent(house.transform);
-            lightGo.transform.localPosition = new Vector3(0f, 1.6f, -1.2f);
+            lightGo.transform.localPosition = new Vector3(0f, 0.2f + h1 * 0.64f, -(d * 0.5f - 0.3f));
             var li = lightGo.AddComponent<Light>();
             li.type = LightType.Point;
             li.color = WarmLight;
             li.intensity = 1.6f;
             li.range = 5f;
 
-            // --- メッシュをアセット化してプレハブ保存 ---
+            // メッシュ・プレハブ保存
             SaveMeshes(house);
-            var prefabPath = PrefabsDir + "/Machiya_A.prefab";
+            var prefabPath = PrefabsDir + "/Machiya_" + cfg.id + ".prefab";
             PrefabUtility.SaveAsPrefabAssetAndConnect(house, prefabPath, InteractionMode.AutomatedAction);
             AssetDatabase.SaveAssets();
 
-            // ブロックアウトの House_A があれば隣に置いて比較できるようにする
-            var blockoutHouse = GameObject.Find("Blockout/House_A");
-            if (blockoutHouse != null)
-            {
-                house.transform.position = blockoutHouse.transform.position - new Vector3(0f, blockoutHouse.transform.localScale.y * 0.5f, 0f);
-                blockoutHouse.SetActive(false);
-            }
+            PlaceAtBlockoutHouse(house, "House_" + cfg.id);
+            UnityEditor.SceneManagement.EditorSceneManager.SaveOpenScenes();
 
             Selection.activeGameObject = house;
-            Debug.Log("[Tsukikage] Machiya_A を生成しました: " + prefabPath);
+            Debug.Log("[Tsukikage] Machiya_" + cfg.id + " を生成しました: " + prefabPath);
+        }
+
+        // 既存の同名インスタンスとアセットを削除してから作り直す
+        static void Cleanup(string name)
+        {
+            var inst = GameObject.Find(name);
+            if (inst != null) Object.DestroyImmediate(inst);
+            foreach (var guid in AssetDatabase.FindAssets(name, new[] { PrefabsDir, HousesDir }))
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guid);
+                if (Path.GetFileNameWithoutExtension(path).StartsWith(name))
+                    AssetDatabase.DeleteAsset(path);
+            }
+        }
+
+        static void PlaceAtBlockoutHouse(GameObject house, string houseName)
+        {
+            var blockRoot = GameObject.Find("Blockout");
+            if (blockRoot == null) return;
+            var t = blockRoot.transform.Find(houseName);
+            if (t == null) return;
+            float groundY = t.position.y - t.localScale.y * 0.5f;
+            house.transform.position = new Vector3(t.position.x, groundY, t.position.z);
+            t.gameObject.SetActive(false);
         }
 
         // ---------------------------------------------------------------
@@ -147,12 +214,18 @@ namespace Tsukikage.EditorTools
             Box(parent, frame, "Window_FrameB", center + new Vector3(0f, -height * 0.5f, -0.02f), new Vector3(width + 0.1f, 0.08f, 0.08f));
         }
 
-        // 切妻屋根: 軒の出付きの三角プリズムをプロシージャル生成
-        static void GableRoof(GameObject parent, Material mat, string name, Vector3 center, float width, float depth, float height)
+        // 切妻屋根: 軒の出付きの三角プリズム（フラットシェーディング）
+        static void GableRoof(GameObject parent, Material mat, string name, Vector3 center, float width, float depth, float height, bool ridgeAlongX)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent.transform);
             go.transform.localPosition = center;
+            if (ridgeAlongX)
+            {
+                // 棟をX方向に回す（幅と奥行を入れ替えて90度回転）
+                float tmp = width; width = depth; depth = tmp;
+                go.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
+            }
 
             float hw = width * 0.5f, hd = depth * 0.5f;
             var fl = new Vector3(-hw, 0, -hd); var fr = new Vector3(hw, 0, -hd); var ft = new Vector3(0, height, -hd);
@@ -173,7 +246,7 @@ namespace Tsukikage.EditorTools
             Tri(fr, ft, bt); Tri(fr, bt, br);   // 右屋根面
             Tri(fl, fr, br); Tri(fl, br, bl);   // 底面
 
-            var mesh = new Mesh { name = name + "_Mesh" };
+            var mesh = new Mesh { name = parent.name + "_" + name + "_Mesh" };
             mesh.SetVertices(v);
             mesh.SetTriangles(tris, 0);
             mesh.RecalculateNormals();
@@ -201,7 +274,7 @@ namespace Tsukikage.EditorTools
                 var mesh = mf.sharedMesh;
                 if (mesh != null && !AssetDatabase.Contains(mesh))
                 {
-                    AssetDatabase.CreateAsset(mesh, HousesDir + "/" + rootGo.name + "_" + mesh.name + ".asset");
+                    AssetDatabase.CreateAsset(mesh, HousesDir + "/" + mesh.name + ".asset");
                 }
             }
             AssetDatabase.SaveAssets();
