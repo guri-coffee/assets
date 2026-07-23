@@ -87,6 +87,8 @@ def main() -> int:
     parser.add_argument("--ref3d", action="store_true", help="3D化用リファレンス（白背景・セル塗り）")
     parser.add_argument("--transparent", action="store_true", help="透過背景（ロゴ・UIパーツ用）")
     parser.add_argument("--raw", action="store_true", help="STYLE_BASEを使わずシーン説明をそのまま使う（ロゴ等）")
+    parser.add_argument("--ref", action="append", default=[],
+                        help="参照画像パス（複数可）。指定時はedit APIでデザイン一貫生成（三面図など）")
     args = parser.parse_args()
 
     api_key = get_api_key()
@@ -114,7 +116,20 @@ def main() -> int:
               "quality": QUALITY, "n": 1}
     if args.transparent:
         kwargs["background"] = "transparent"
-    result = client.images.generate(**kwargs)
+    if args.ref:
+        refs = []
+        for r in args.ref:
+            rp = Path(r)
+            if not rp.is_absolute():
+                rp = ROOT / rp
+            refs.append(open(rp, "rb"))
+        try:
+            result = client.images.edit(image=refs, **kwargs)
+        finally:
+            for f in refs:
+                f.close()
+    else:
+        result = client.images.generate(**kwargs)
     img = Image.open(BytesIO(base64.b64decode(result.data[0].b64_json)))
     img.save(out_path, "PNG")
     print(f"OK: {out_path}")
