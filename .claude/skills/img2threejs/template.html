@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>MODEL_NAME — Three.js</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#f4f2ee;}
+  #info{position:fixed;top:10px;left:12px;font:12px/1.6 sans-serif;color:#777;user-select:none;}
+  #vars{position:fixed;top:10px;right:12px;display:flex;gap:6px;}
+  #vars button{
+    font:12px sans-serif;color:#333;background:#fff;border:1px solid #bbb;
+    border-radius:4px;padding:5px 10px;cursor:pointer;
+  }
+  #vars button.on{background:#dde6f0;border-color:#7a90b0;}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="info">MODEL_NAME — drag: rotate / wheel: zoom / right-drag: pan</div>
+<div id="vars"></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+/* ---------- palette（画像からスポイトで拾って書き換える） ---------- */
+const C = {
+  bg: 0xf4f2ee,
+  // main: 0x000000, ...
+};
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(C.bg);
+// 夜シーンなら: scene.fog = new THREE.FogExp2(C.bg, 0.028);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 500);
+camera.position.set(6, 4, 10);           // モデルサイズに合わせて調整
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);            // モデルの重心へ
+controls.enableDamping = true;
+
+/* ---------- lights（昼: 白＋暖色 / 夜: 青月光＋暖色Point） ---------- */
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.1);
+sun.position.set(15, 30, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+const sc = sun.shadow.camera;
+sc.left = sc.bottom = -20; sc.right = sc.top = 20; sc.far = 100;
+scene.add(sun);
+
+/* ---------- helpers ---------- */
+function mesh(geo, mat, parent){
+  const m = new THREE.Mesh(geo, mat);
+  m.castShadow = m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+function box(w,h,d, mat, x,y,z, parent){
+  const m = mesh(new THREE.BoxGeometry(w,h,d), mat, parent);
+  m.position.set(x,y,z);
+  return m;
+}
+/* 風化・手作り感: 頂点ジッター（segmentsを2以上にしてから使う） */
+function weather(geo, amt=0.01){
+  const p = geo.attributes.position;
+  for(let i=0; i<p.count; i++){
+    p.setXYZ(i,
+      p.getX(i)+(Math.random()-0.5)*amt,
+      p.getY(i)+(Math.random()-0.5)*amt,
+      p.getZ(i)+(Math.random()-0.5)*amt);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/* ================= build =================
+   model グループにモデル本体を構築する。
+   単位はメートル1:1（Unityにそのまま入る）。
+   地面・遠景・ライトは model に入れない（GLBに含めないため）。 */
+const model = new THREE.Group();
+scene.add(model);
+
+// TODO: ここにモデル構築コード
+
+/* ---------- ground（GLBには含まれない） ---------- */
+const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 48),
+  new THREE.MeshStandardMaterial({ color:0xeceae4, roughness:1 }));
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+/* ================= カラーバリエーション（不要なら削除） =================
+const VARIANTS = {
+  '名前A': { main:0x000000 },
+};
+function setVariant(name){
+  // material.color.set(...) で切り替え
+  document.querySelectorAll('#vars button').forEach(b => b.classList.toggle('on', b.textContent===name));
+}
+for(const name of Object.keys(VARIANTS)){
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => setVariant(name);
+  document.getElementById('vars').appendChild(b);
+}
+setVariant(Object.keys(VARIANTS)[0]);
+*/
+
+/* ================= GLB export (Unity: glTFast) ================= */
+{
+  const b = document.createElement('button');
+  b.textContent = 'GLB書き出し';
+  b.style.background = '#4a6b3a';
+  b.style.borderColor = '#6f9a58';
+  b.style.color = '#fff';
+  b.onclick = () => {
+    /* flatShadingの見た目を保つため非インデックス化してフラット法線を焼き込む */
+    const clone = model.clone(true);
+    clone.traverse(o => {
+      if(o.isMesh){
+        o.geometry = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+        o.geometry.computeVertexNormals();
+        o.castShadow = o.receiveShadow = false;
+      }
+    });
+    new GLTFExporter().parse(clone, (buf) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buf], { type:'model/gltf-binary' }));
+      a.download = 'MODEL_NAME.glb';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, (err) => alert('書き出し失敗: ' + err), { binary:true });
+  };
+  document.getElementById('vars').appendChild(b);
+}
+
+/* ================= loop ================= */
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
