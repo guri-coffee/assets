@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>研磨加工指示図 プレート — Three.js</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#f4f2ee;}
+  #info{position:fixed;top:10px;left:12px;font:12px/1.6 sans-serif;color:#777;user-select:none;}
+  #spec{position:fixed;bottom:12px;left:12px;font:12px/1.7 sans-serif;color:#555;
+        background:rgba(255,255,255,.85);border:1px solid #ccc;border-radius:6px;padding:8px 12px;user-select:none;}
+  #vars{position:fixed;top:10px;right:12px;display:flex;gap:6px;}
+  #vars button{
+    font:12px sans-serif;color:#333;background:#fff;border:1px solid #bbb;
+    border-radius:4px;padding:5px 10px;cursor:pointer;
+  }
+  #vars button.on{background:#dde6f0;border-color:#7a90b0;}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="info">研磨加工指示図 プレート — drag: rotate / wheel: zoom / right-drag: pan</div>
+<div id="spec">
+  プレート（現状品）　402.3 × 302.6 × <span id="hval">63.3</span> mm（参考）<br>
+  研代 0.2／面（上・下面）　／　データムA＝上面　／　下面 平行度 0.005
+</div>
+<div id="vars"></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* ---------- palette ---------- */
+const C = {
+  bg:        0xf4f2ee,
+  steel:     0x9aa0a6,   // 側面（フライス肌）
+  ground:    0xc7ccd1,   // 研磨面（上・下面）はやや明るく
+  highlight: 0x2f8f4e,   // 研磨面ハイライト（研代0.2）
+  datum:     0xb03030,   // データムAマーカー
+};
+
+/* ---------- 寸法（図面値 mm → m、1:1） ---------- */
+const L = 0.4023;             // 長さ 402.3
+const D = 0.3026;             // 奥行 302.6
+const H_BEFORE = 0.0633;      // 現状高さ 63.3
+const H_AFTER  = 0.0629;      // 研磨後 約62.9（各面 研代0.2）
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(C.bg);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.01, 50);
+camera.position.set(0.55, 0.42, 0.72);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+/* 金属質感用の環境マップ（GLBには含まれない） */
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.9;
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.03, 0);
+controls.enableDamping = true;
+
+/* ---------- lights ---------- */
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.2);
+sun.position.set(0.8, 1.6, 1.0);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+const sc = sun.shadow.camera;
+sc.left = sc.bottom = -0.8; sc.right = sc.top = 0.8; sc.far = 6;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xdfe8f0, 0.4);
+fill.position.set(-1.0, 0.6, -0.8);
+scene.add(fill);
+
+/* ---------- テクスチャ（Canvas手続き生成・グレー基調） ---------- */
+/* 研磨面: 一方向の細かい研磨条痕 */
+function grindTexture(){
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 512;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#b9bec3';
+  g.fillRect(0, 0, 512, 512);
+  for(let y = 0; y < 512; y += 2){
+    const v = 175 + Math.floor(Math.random()*36);
+    g.strokeStyle = `rgba(${v},${v+2},${v+4},0.55)`;
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(0, y + Math.random());
+    g.lineTo(512, y + Math.random());
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 2);
+  return t;
+}
+/* 側面: フライス肌（円弧カッターマークをうっすら） */
+function millTexture(){
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 256;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#a4a9ad';
+  g.fillRect(0, 0, 512, 256);
+  for(let x = -40; x < 560; x += 22){
+    const v = 145 + Math.floor(Math.random()*30);
+    g.strokeStyle = `rgba(${v},${v},${v+3},0.35)`;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(x, 128, 90, -0.9, 0.9);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(3, 1);
+  return t;
+}
+
+const matGround = new THREE.MeshStandardMaterial({   // 上・下面（研磨面）
+  color: C.ground, map: grindTexture(), metalness: 0.85, roughness: 0.32 });
+const matSide = new THREE.MeshStandardMaterial({     // 側面4面
+  color: C.steel, map: millTexture(), metalness: 0.75, roughness: 0.5 });
+
+/* ================= build ================= */
+const model = new THREE.Group();
+model.name = 'kenma_plate';
+scene.add(model);
+
+let plate = null;
+function buildPlate(h){
+  if(plate){
+    plate.geometry.dispose();
+    model.remove(plate);
+  }
+  const geo = new THREE.BoxGeometry(L, h, D);
+  /* BoxGeometry材質順: +x,-x,+y,-y,+z,-z */
+  plate = new THREE.Mesh(geo, [matSide, matSide, matGround, matGround, matSide, matSide]);
+  plate.name = 'plate';
+  plate.castShadow = plate.receiveShadow = true;
+  plate.position.y = h/2;
+  model.add(plate);
+  refreshOverlays(h);
+}
+
+/* ---------- オーバーレイ（GLBには含まれない: model外） ---------- */
+const overlay = new THREE.Group();
+scene.add(overlay);
+let showFaces = true;
+
+const hlMat = new THREE.MeshBasicMaterial({
+  color: C.highlight, transparent: true, opacity: 0.28,
+  depthWrite: false, side: THREE.DoubleSide });
+const hlTop = new THREE.Mesh(new THREE.PlaneGeometry(L, D), hlMat);
+hlTop.rotation.x = -Math.PI/2;
+const hlBot = hlTop.clone();
+overlay.add(hlTop, hlBot);
+
+/* データムA ラベル（Canvasスプライト） */
+function textSprite(str, fg, scale){
+  const cv = document.createElement('canvas');
+  cv.width = 256; cv.height = 128;
+  const g = cv.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,0.92)';
+  g.strokeStyle = fg; g.lineWidth = 6;
+  g.fillRect(8, 8, 240, 112);
+  g.strokeRect(8, 8, 240, 112);
+  g.fillStyle = fg;
+  g.font = 'bold 64px sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(str, 128, 66);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true }));
+  sp.scale.set(scale, scale/2, 1);
+  return sp;
+}
+const datumLabel = textSprite('A', '#b03030', 0.07);
+const topLabel   = textSprite('研代0.2', '#2f8f4e', 0.14);
+const botLabel   = textSprite('研代0.2', '#2f8f4e', 0.14);
+overlay.add(datumLabel, topLabel, botLabel);
+
+function refreshOverlays(h){
+  hlTop.position.set(0, h + 0.0004, 0);
+  hlBot.position.set(0, -0.0004, 0);
+  datumLabel.position.set(-L/2 + 0.05, h + 0.055, -D/2 + 0.05);
+  topLabel.position.set(L/2 - 0.07, h + 0.045, D/2 - 0.05);
+  botLabel.position.set(L/2 - 0.07, -0.045, D/2 - 0.05);
+  overlay.visible = showFaces;
+}
+
+/* ---------- ground（GLBには含まれない） ---------- */
+const ground = new THREE.Mesh(new THREE.CircleGeometry(2.5, 48),
+  new THREE.MeshStandardMaterial({ color:0xeceae4, roughness:1 }));
+ground.rotation.x = -Math.PI/2;
+ground.position.y = -0.001;
+ground.receiveShadow = true;
+scene.add(ground);
+
+/* ================= 状態切り替え ================= */
+const STATES = {
+  '研磨前 63.3': H_BEFORE,
+  '研磨後 62.9': H_AFTER,
+};
+let currentState = '研磨前 63.3';
+function setState(name){
+  currentState = name;
+  buildPlate(STATES[name]);
+  document.getElementById('hval').textContent = (STATES[name]*1000).toFixed(1);
+  document.querySelectorAll('#vars button[data-state]').forEach(
+    b => b.classList.toggle('on', b.textContent === name));
+}
+const vars = document.getElementById('vars');
+for(const name of Object.keys(STATES)){
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.dataset.state = '1';
+  b.onclick = () => setState(name);
+  vars.appendChild(b);
+}
+{
+  const b = document.createElement('button');
+  b.textContent = '研磨面表示';
+  b.classList.add('on');
+  b.onclick = () => {
+    showFaces = !showFaces;
+    overlay.visible = showFaces;
+    b.classList.toggle('on', showFaces);
+  };
+  vars.appendChild(b);
+}
+setState(currentState);
+
+/* ================= GLB export (Unity: glTFast) ================= */
+{
+  const b = document.createElement('button');
+  b.textContent = 'GLB書き出し';
+  b.style.background = '#4a6b3a';
+  b.style.borderColor = '#6f9a58';
+  b.style.color = '#fff';
+  b.onclick = () => {
+    const clone = model.clone(true);
+    clone.traverse(o => {
+      if(o.isMesh){
+        o.geometry = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+        o.geometry.computeVertexNormals();
+        o.castShadow = o.receiveShadow = false;
+      }
+    });
+    new GLTFExporter().parse(clone, (buf) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buf], { type:'model/gltf-binary' }));
+      a.download = currentState.startsWith('研磨後') ? 'kenma_plate_after.glb' : 'kenma_plate_before.glb';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, (err) => alert('書き出し失敗: ' + err), { binary:true });
+  };
+  vars.appendChild(b);
+}
+
+/* ================= loop ================= */
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
