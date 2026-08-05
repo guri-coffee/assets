@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>月影流 忍術VFX — Animation Editor / Composer</title>
+<style>
+  :root{
+    --bg:#07080f; --panel:#0d1020; --panel2:#131734; --line:#252a4d;
+    --txt:#c8d2f0; --dim:#7b86ad; --cyan:#5ad9ff; --gold:#ffc44d; --crimson:#ff5d6c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font:13px/1.5 -apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",Meiryo,system-ui,sans-serif;
+    overflow:hidden;-webkit-font-smoothing:antialiased}
+  #app{display:grid;grid-template-columns:1fr 268px;grid-template-rows:1fr 238px;height:100%}
+  #stage{grid-area:1/1/2/2;position:relative;background:#000;overflow:hidden}
+  #gl{display:block;width:100%;height:100%}
+  #hud{position:absolute;left:14px;top:12px;pointer-events:none;text-shadow:0 1px 6px #000}
+  #hud b{display:block;font-size:15px;letter-spacing:.14em;color:#e8eeff;font-weight:600}
+  #hud span{font-size:11px;color:var(--dim);letter-spacing:.08em}
+  #tc{position:absolute;right:14px;top:12px;font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--cyan);background:#00000066;padding:6px 9px;border-radius:5px;border:1px solid #ffffff14}
+
+  /* ---- side panel : Composer ---- */
+  #side{grid-area:1/2/3/3;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto}
+  .sec{padding:12px 14px;border-bottom:1px solid var(--line)}
+  .sec h3{margin:0 0 10px;font-size:11px;letter-spacing:.16em;color:var(--dim);font-weight:600;text-transform:uppercase}
+  .row{display:flex;align-items:center;gap:8px;margin:7px 0}
+  .row label{flex:0 0 92px;font-size:11px;color:var(--dim)}
+  .row input[type=range]{flex:1;-webkit-appearance:none;height:3px;background:var(--line);border-radius:3px;outline:none}
+  .row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+    background:var(--cyan);cursor:pointer;box-shadow:0 0 8px #5ad9ff88}
+  .row .v{flex:0 0 34px;text-align:right;font:11px/1 ui-monospace,Menlo,monospace;color:#96a3cc}
+  .pre{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .pre button{padding:8px 0;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:6px;cursor:pointer;font-size:11px;transition:.15s}
+  .pre button:hover{border-color:#3d4680}
+  .pre button.on{border-color:var(--cyan);color:#eaf6ff;background:#16203f;box-shadow:inset 0 0 14px #5ad9ff22}
+  .btn{width:100%;padding:9px;margin-top:8px;background:var(--panel2);border:1px solid var(--line);
+    color:var(--txt);border-radius:6px;cursor:pointer;font-size:12px}
+  .btn:hover{border-color:#3d4680}
+  .btn.rec.on{border-color:var(--crimson);color:#ffdde0;background:#2a1220}
+
+  /* ---- timeline : Animation Editor ---- */
+  #tl{grid-area:2/1/3/2;position:relative;background:var(--panel);border-top:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  #tlbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)}
+  #tlbar button{width:30px;height:26px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:5px;cursor:pointer;font-size:12px}
+  #tlbar button.on{border-color:var(--cyan);color:var(--cyan)}
+  #tlbar .sp{flex:1}
+  #tlbar .lbl{font-size:11px;color:var(--dim)}
+  #tracks{flex:1;overflow-y:auto;position:relative}
+  .trk{display:grid;grid-template-columns:132px 54px 1fr;align-items:center;height:26px;
+    border-bottom:1px solid #ffffff08}
+  .trk .nm{padding-left:10px;font-size:11px;display:flex;align-items:center;gap:7px;
+    white-space:nowrap;overflow:hidden}
+  .trk .dot{width:7px;height:7px;border-radius:2px;flex:0 0 auto}
+  .trk .nm.off{opacity:.34;text-decoration:line-through}
+  .trk .gn{-webkit-appearance:none;height:3px;background:var(--line);border-radius:3px;margin-right:8px}
+  .trk .gn::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height:9px;border-radius:50%;background:#8fa0d0;cursor:pointer}
+  .lane{position:relative;height:100%;border-left:1px solid var(--line)}
+  .clip{position:absolute;top:5px;height:16px;border-radius:3px;opacity:.85;
+    box-shadow:inset 0 0 0 1px #ffffff33}
+  #ruler{position:relative;height:20px;border-bottom:1px solid var(--line);
+    margin-left:186px;font:10px/20px ui-monospace,Menlo,monospace;color:#5f6a92}
+  #ruler i{position:absolute;top:0;width:1px;height:100%;background:#ffffff12}
+  #ruler u{position:absolute;top:0;text-decoration:none;padding-left:3px}
+  #ph{position:absolute;top:0;bottom:0;width:1px;background:var(--gold);pointer-events:none;z-index:5;
+    box-shadow:0 0 8px var(--gold)}
+  #ph::before{content:"";position:absolute;top:0;left:-4px;border:4px solid transparent;border-top-color:var(--gold)}
+  #scrub{position:absolute;left:186px;right:0;top:0;bottom:0;cursor:ew-resize;z-index:4}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <div id="hud"><b>月影流 · 雷鳴陣</b><span>TSUKIKAGE / NINJUTSU VFX</span></div>
+    <div id="tc">00:00.00</div>
+  </div>
+
+  <div id="side">
+    <div class="sec">
+      <h3>Preset</h3>
+      <div class="pre" id="presets">
+        <button data-p="0" class="on">雷 Raiden</button>
+        <button data-p="1">炎 Enbu</button>
+        <button data-p="2">桜 Sakura</button>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>Composer — Bloom</h3>
+      <div class="row"><label>Threshold</label><input type="range" id="c_thr" min="0" max="2" step="0.01" value="0.62"><span class="v"></span></div>
+      <div class="row"><label>Intensity</label><input type="range" id="c_int" min="0" max="3" step="0.01" value="1.25"><span class="v"></span></div>
+      <div class="row"><label>Radius</label><input type="range" id="c_rad" min="0.2" max="2.5" step="0.01" value="1.15"><span class="v"></span></div>
+    </div>
+    <div class="sec">
+      <h3>Composer — Grade</h3>
+      <div class="row"><label>Exposure</label><input type="range" id="c_exp" min="0.3" max="2.2" step="0.01" value="1.06"><span class="v"></span></div>
+      <div class="row"><label>Contrast</label><input type="range" id="c_con" min="0.6" max="1.8" step="0.01" value="1.12"><span class="v"></span></div>
+      <div class="row"><label>Chromatic</label><input type="range" id="c_ca" min="0" max="4" step="0.01" value="0.55"><span class="v"></span></div>
+      <div class="row"><label>Vignette</label><input type="range" id="c_vig" min="0" max="1.6" step="0.01" value="0.78"><span class="v"></span></div>
+      <div class="row"><label>Grain</label><input type="range" id="c_grn" min="0" max="0.3" step="0.005" value="0.055"><span class="v"></span></div>
+    </div>
+    <div class="sec">
+      <h3>Camera</h3>
+      <div class="row"><label>Orbit</label><input type="range" id="c_orb" min="-1.6" max="1.6" step="0.01" value="0.34"><span class="v"></span></div>
+      <div class="row"><label>Height</label><input type="range" id="c_hgt" min="0.4" max="6" step="0.01" value="2.05"><span class="v"></span></div>
+      <div class="row"><label>Distance</label><input type="range" id="c_dst" min="4" max="26" step="0.1" value="9.4"><span class="v"></span></div>
+      <div class="row"><label>Shake</label><input type="range" id="c_shk" min="0" max="2" step="0.01" value="1"><span class="v"></span></div>
+    </div>
+    <div class="sec">
+      <h3>Export</h3>
+      <button class="btn" id="snap">PNG を保存</button>
+      <button class="btn rec" id="rec">WebM 録画（1ループ）</button>
+      <p style="margin:10px 0 0;font-size:10.5px;color:var(--dim);line-height:1.6">
+        Unity へは同フォルダの README.md の対応表を参照。各トラックが
+        ParticleSystem / Shader Graph の 1 モジュールに対応します。</p>
+    </div>
+  </div>
+
+  <div id="tl">
+    <div id="tlbar">
+      <button id="play">▶</button>
+      <button id="loop" class="on">⟳</button>
+      <span class="lbl">Speed</span>
+      <input type="range" id="spd" min="0.1" max="2" step="0.05" value="1" style="width:88px">
+      <span class="lbl" id="spdv">1.00x</span>
+      <span class="sp"></span>
+      <span class="lbl">Duration 3.40s / 60fps</span>
+    </div>
+    <div id="ruler"></div>
+    <div id="tracks"></div>
+    <div id="scrub"></div>
+    <div id="ph"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   月影流 忍術VFX — WebGL2 単一ファイル実装（依存ライブラリなし）
+   構成:  Animation Editor（タイムライン駆動）
+        + VFX レイヤー（sigil / pillar / slash / shock / embers / sparks）
+        + Composer（bright → blur x3 → composite + grade）
+   ===================================================================== */
+
+/* ---------- math ---------- */
+const M4 = {
+  ident:()=>new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]),
+  mul(a,b){const o=new Float32Array(16);
+    for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s;}
+    return o;},
+  persp(f,ar,n,fa){const t=1/Math.tan(f/2),o=new Float32Array(16);
+    o[0]=t/ar;o[5]=t;o[10]=(fa+n)/(n-fa);o[11]=-1;o[14]=2*fa*n/(n-fa);return o;},
+  look(e,c,u){
+    let z=[e[0]-c[0],e[1]-c[1],e[2]-c[2]];let l=Math.hypot(...z);z=z.map(v=>v/l);
+    let x=[u[1]*z[2]-u[2]*z[1],u[2]*z[0]-u[0]*z[2],u[0]*z[1]-u[1]*z[0]];l=Math.hypot(...x)||1;x=x.map(v=>v/l);
+    const y=[z[1]*x[2]-z[2]*x[1],z[2]*x[0]-z[0]*x[2],z[0]*x[1]-z[1]*x[0]];
+    return new Float32Array([x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0,
+      -(x[0]*e[0]+x[1]*e[1]+x[2]*e[2]), -(y[0]*e[0]+y[1]*e[1]+y[2]*e[2]), -(z[0]*e[0]+z[1]*e[1]+z[2]*e[2]), 1]);},
+  trs(t,ry,s){const c=Math.cos(ry),n=Math.sin(ry);
+    return new Float32Array([c*s[0],0,-n*s[0],0, 0,s[1],0,0, n*s[2],0,c*s[2],0, t[0],t[1],t[2],1]);}
+};
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const sat=v=>clamp(v,0,1);
+const smooth=(a,b,x)=>{const t=sat((x-a)/(b-a));return t*t*(3-2*t);};
+const easeOut=t=>1-Math.pow(1-t,3);
+const easeIn =t=>t*t*t;
+
+/* ---------- timeline ---------- */
+const DUR = 3.40;
+const TRACKS = [
+  {id:'embers', jp:'火の粉 / Embers',   col:'#7f9bff', clips:[[0.00,3.40]]},
+  {id:'charge', jp:'集束 / Charge',     col:'#4fc3ff', clips:[[0.00,1.18]]},
+  {id:'sigil',  jp:'術式陣 / Sigil',    col:'#5ad9ff', clips:[[0.12,2.95]]},
+  {id:'burst',  jp:'発破 / Burst',      col:'#ffffff', clips:[[1.05,1.42]]},
+  {id:'shock',  jp:'衝撃波 / Shockwave',col:'#ffc44d', clips:[[1.06,2.05]]},
+  {id:'pillar', jp:'光柱 / Pillar',     col:'#66e6ff', clips:[[1.02,2.55]]},
+  {id:'slash',  jp:'斬撃 / Slash',      col:'#ff8ad0', clips:[[1.52,2.02]]},
+  {id:'sparks', jp:'火花 / Sparks',     col:'#ffd98a', clips:[[1.06,1.85]]},
+];
+const T = {};                       // runtime state per track
+TRACKS.forEach(t=>T[t.id]={on:true,gain:1,t:-1});
+
+function evalTracks(time){
+  for(const tr of TRACKS){
+    let p=-1;
+    for(const [a,b] of tr.clips) if(time>=a&&time<=b){p=(time-a)/(b-a);break;}
+    T[tr.id].t = p;
+  }
+}
+
+/* ---------- palettes ---------- */
+const PRESETS=[
+  {name:'雷', core:[0.85,0.99,1.0], mid:[0.28,0.78,1.0],  rim:[0.55,0.42,1.0],  amb:[0.10,0.16,0.34]},
+  {name:'炎', core:[1.0,0.95,0.78],  mid:[1.0,0.45,0.13],  rim:[0.95,0.12,0.20], amb:[0.22,0.10,0.08]},
+  {name:'桜', core:[1.0,0.92,0.98],  mid:[1.0,0.52,0.78],  rim:[1.0,0.78,0.32],  amb:[0.20,0.12,0.24]},
+];
+let PAL = PRESETS[0];
+
+/* ---------- gl bootstrap ---------- */
+const cv = document.getElementById('gl');
+const gl = cv.getContext('webgl2',{antialias:false,alpha:false,preserveDrawingBuffer:true});
+if(!gl){document.body.innerHTML='<p style="padding:24px">WebGL2 が利用できません。</p>';throw 0;}
+const HDR = !!gl.getExtension('EXT_color_buffer_float');
+gl.getExtension('OES_texture_float_linear');
+
+function sh(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s)+"\n"+src.split("\n").map((l,i)=>(i+1)+": "+l).join("\n"));
+  return s;}
+function prog(vs,fs){const p=gl.createProgram();
+  gl.attachShader(p,sh(gl.VERTEX_SHADER,vs));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
+  p.u=new Proxy({},{get:(c,k)=>(k in c?c[k]:(c[k]=gl.getUniformLocation(p,k)))});
+  return p;}
+function buf(data,tgt=gl.ARRAY_BUFFER){const b=gl.createBuffer();gl.bindBuffer(tgt,b);
+  gl.bufferData(tgt,data,gl.STATIC_DRAW);return b;}
+
+/* ---------- shared glsl ---------- */
+const HEAD = `#version 300 es
+precision highp float;`;
+const NOISE = `
+float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  float a=hash21(i),b=hash21(i+vec2(1,0)),c=hash21(i+vec2(0,1)),d=hash21(i+vec2(1,1));
+  return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);}
+float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<5;i++){s+=a*vnoise(p);p*=2.03;a*=.52;}return s;}
+float ring(float r,float R,float w){return smoothstep(w,0.,abs(r-R));}
+float sat(float x){return clamp(x,0.,1.);}
+`;
+
+/* =====================  geometry  ===================== */
+// quad (XZ plane, unit)
+const quadXZ = buf(new Float32Array([-1,0,-1, 1,0,-1, -1,0,1,  1,0,-1, 1,0,1, -1,0,1]));
+// fullscreen triangle
+const fsTri  = buf(new Float32Array([-1,-1, 3,-1, -1,3]));
+
+// cylinder (open, y 0..1, r 1) — pos + normal + uv
+(function(){})();
+function makeCylinder(seg,hseg){
+  const v=[];
+  for(let i=0;i<seg;i++){
+    for(let j=0;j<hseg;j++){
+      const a0=i/seg*Math.PI*2, a1=(i+1)/seg*Math.PI*2;
+      const y0=j/hseg, y1=(j+1)/hseg;
+      const P=(a,y)=>{const c=Math.cos(a),s=Math.sin(a);
+        const fl=1.0+0.55*Math.exp(-y*4.0)-0.35*y*y;      // 裾広がりのプロファイル
+        return [c*fl,y,s*fl, c,0,s, i/seg + (a===a1?1/seg:0), y];};
+      const A=P(a0,y0),B=P(a1,y0),C=P(a0,y1),D=P(a1,y1);
+      v.push(...A,...B,...C, ...B,...D,...C);
+    }
+  }
+  return {b:buf(new Float32Array(v)),n:v.length/8};
+}
+const CYL = makeCylinder(56,14);
+
+// slash arc strip — pos + uv(u along arc, v across)
+function makeArc(){
+  const v=[],S=96,R=1.0,HW=0.30;
+  for(let i=0;i<=S;i++){
+    const u=i/S, a=(-1.15+2.30*u);
+    const prof=Math.pow(Math.sin(Math.PI*u),0.55);
+    for(const sgn of [-1,1]){
+      const r=R+sgn*HW*prof;
+      v.push(Math.cos(a)*r, Math.sin(a)*r, sgn*0.06*prof, u, sgn);
+    }
+  }
+  return {b:buf(new Float32Array(v)),n:(S+1)*2};
+}
+const ARC = makeArc();
+
+// ninja silhouette from boxes: pos + normal
+function boxTo(list,cx,cy,cz,sx,sy,sz,ry){
+  const c=Math.cos(ry||0), s=Math.sin(ry||0);
+  const F=[[0,0,1],[0,0,-1],[1,0,0],[-1,0,0],[0,1,0],[0,-1,0]];
+  const V=[[[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]],[[1,-1,-1],[-1,-1,-1],[-1,1,-1],[1,1,-1]],
+           [[1,-1,1],[1,-1,-1],[1,1,-1],[1,1,1]],[[-1,-1,-1],[-1,-1,1],[-1,1,1],[-1,1,-1]],
+           [[-1,1,1],[1,1,1],[1,1,-1],[-1,1,-1]],[[-1,-1,-1],[1,-1,-1],[1,-1,1],[-1,-1,1]]];
+  for(let f=0;f<6;f++){
+    const q=V[f].map(p=>{let x=p[0]*sx,y=p[1]*sy,z=p[2]*sz;
+      const X=x*c+z*s, Z=-x*s+z*c; return [X+cx,y+cy,Z+cz];});
+    const n0=F[f], nx=n0[0]*c+n0[2]*s, nz=-n0[0]*s+n0[2]*c, n=[nx,n0[1],nz];
+    for(const idx of [0,1,2,0,2,3]) list.push(...q[idx],...n);
+  }
+}
+function makeNinja(){
+  const v=[];
+  boxTo(v,-0.13,0.40,0.02, 0.10,0.40,0.10, 0.10);  // 左脚
+  boxTo(v, 0.14,0.40,-0.04,0.10,0.40,0.10,-0.14);  // 右脚
+  boxTo(v, 0.0,1.02,0.0,   0.24,0.30,0.15, 0);   // 胴
+  boxTo(v, 0.0,1.36,0.0,   0.20,0.09,0.13, 0);   // 肩
+  boxTo(v, 0.0,1.58,0.01,  0.115,0.13,0.11,0);   // 頭
+  boxTo(v, 0.0,1.62,0.10,  0.10,0.055,0.03,0);   // 面
+  boxTo(v,-0.26,1.16,0.08, 0.075,0.26,0.075,-0.5);// 左腕
+  boxTo(v, 0.26,1.16,0.08, 0.075,0.26,0.075, 0.5);// 右腕
+  boxTo(v, 0.0,0.95,0.24,  0.09,0.075,0.07, 0);   // 印を結ぶ手
+  boxTo(v, 0.0,1.44,-0.16, 0.085,0.36,0.02, 0.1); // マフラー
+  boxTo(v,-0.05,1.18,-0.34,0.07,0.30,0.02,-0.3);
+  boxTo(v, 0.0,0.72,0.0,   0.18,0.05,0.13, 0);    // 帯
+  return {b:buf(new Float32Array(v)),n:v.length/6};
+}
+const NINJA = makeNinja();
+
+// particles
+function seeds(n,stride=4){const a=new Float32Array(n*stride);
+  for(let i=0;i<a.length;i++)a[i]=Math.random();return a;}
+const P_N=1700, P_BUF=buf(seeds(P_N,4));
+const S_N=210,  S_ARR=(()=>{const s=seeds(S_N,4),o=new Float32Array(S_N*2*5);
+  for(let i=0;i<S_N;i++)for(let e=0;e<2;e++){const b=(i*2+e)*5;
+    o[b]=s[i*4];o[b+1]=s[i*4+1];o[b+2]=s[i*4+2];o[b+3]=s[i*4+3];o[b+4]=e;}
+  return o;})();
+const S_BUF=buf(S_ARR);
+
+/* =====================  programs  ===================== */
+const VS_COMMON = `
+uniform mat4 uVP,uM;
+`;
+
+// --- ground
+const PG = prog(HEAD+`
+in vec3 aPos; uniform mat4 uVP; uniform float uScale; out vec3 vW;
+void main(){vW=aPos*uScale; gl_Position=uVP*vec4(vW,1.);}`,
+HEAD+NOISE+`
+in vec3 vW; out vec4 o; uniform vec3 uAmb; uniform float uGlow; uniform vec3 uMid;
+void main(){
+  float r=length(vW.xz);
+  vec2 gw=max(fwidth(vW.xz),1e-4)*1.4;
+  vec2 gg=abs(fract(vW.xz*0.5+0.5)-0.5)*2.0/gw;
+  float grid=1.-min(min(gg.x,gg.y),1.);
+  float n=fbm(vW.xz*0.55);
+  vec3 c=uAmb*(0.11+0.16*n);
+  c+=uMid*grid*0.022*smoothstep(15.,1.,r);
+  c+=uMid*uGlow*0.17*exp(-r*0.62);                    // 術式陣の照り返し
+  c*=smoothstep(19.,3.,r);
+  o=vec4(c,1.);}`);
+
+// --- ninja silhouette
+const PN = prog(HEAD+`
+in vec3 aPos; in vec3 aNor; uniform mat4 uVP,uM; out vec3 vN,vW;
+void main(){vec4 w=uM*vec4(aPos,1.);vW=w.xyz;vN=mat3(uM)*aNor;gl_Position=uVP*w;}`,
+HEAD+`
+in vec3 vN,vW; out vec4 o; uniform vec3 uEye,uMid,uCore; uniform float uGlow,uUp;
+void main(){
+  vec3 N=normalize(vN), V=normalize(uEye-vW);
+  float rim=pow(1.-max(dot(N,V),0.),2.6);
+  float up =max(-N.y,0.);                              // 下からの陣の光
+  float side=max(dot(N,normalize(vec3(-.5,.35,.6))),0.);
+  vec3 c=vec3(0.016,0.020,0.042);
+  c+=vec3(0.06,0.08,0.16)*side;
+  c+=uMid*rim*(0.55+1.9*uGlow);
+  c+=uCore*up*uUp*0.9;
+  o=vec4(c,1.);}`);
+
+// --- sigil (術式陣)
+const PS = prog(HEAD+`
+in vec3 aPos; uniform mat4 uVP; uniform float uScale,uY; out vec2 vP;
+void main(){vP=aPos.xz; gl_Position=uVP*vec4(aPos.x*uScale,uY,aPos.z*uScale,1.);}`,
+HEAD+NOISE+`
+in vec2 vP; out vec4 o;
+uniform float uT,uTime,uGain; uniform vec3 uCore,uMid,uRim;
+const float TAU=6.2831853;
+void main(){
+  float r=length(vP), a=atan(vP.y,vP.x);
+  float grow=smoothstep(0.,0.30,uT);
+  float fade=1.-smoothstep(0.72,1.,uT);
+  float R=mix(0.15,1.0,pow(grow,.6));
+  float rr=r/R;
+  // 描き起こしのスイープ
+  float sweep=smoothstep(0.,1.,uT*3.2);
+  float ang=mod(a+uTime*0.35+3.1416,TAU)/TAU;
+  float draw=smoothstep(sweep+0.02,sweep-0.10,ang)+step(1.,sweep);
+  draw=clamp(draw,0.,1.);
+
+  float g=0.;
+  g+=ring(rr,1.00,0.014)*1.3;
+  g+=ring(rr,0.94,0.006)*0.7;
+  g+=ring(rr,0.62,0.010)*0.9;
+  g+=ring(rr,0.30,0.008)*0.7;
+  // 外周の刻み
+  float ticks=step(0.55,fract((a/TAU)*36.+uTime*0.02));
+  g+=ring(rr,0.97,0.028)*ticks*0.85;
+  // 内側の逆回転刻み
+  float t2=step(0.72,fract((a/TAU)*18.-uTime*0.09));
+  g+=ring(rr,0.46,0.045)*t2*0.55;
+  // 月桜紋（5弁）
+  float petal=0.62+0.20*cos(5.*(a-uTime*0.16));
+  g+=smoothstep(0.030,0.,abs(rr-petal))*0.95;
+  // 三日月
+  float c1=length(vP/R-vec2(0.,0.))-0.20;
+  float c2=length(vP/R-vec2(0.075,0.045))-0.19;
+  g+=smoothstep(0.020,0.,max(c1,-c2))*1.15;
+  // 放射のヘアライン
+  float spokes=smoothstep(0.985,1.,cos((a+uTime*0.05)*12.))*smoothstep(1.02,0.34,rr);
+  g+=spokes*0.55;
+  // 内部の靄
+  float haze=fbm(vP*7.-vec2(0.,uTime*0.9))*smoothstep(1.0,0.1,rr)*0.30;
+
+  g*=draw;
+  float pulse=0.82+0.18*sin(uTime*7.+r*3.);
+  vec3 col=mix(uMid,uCore,sat(g*0.55))*g*pulse + uRim*haze;
+  float chargeUp=1.+2.6*pow(sat(uT/0.34),3.)*smoothstep(0.42,0.30,uT);
+  o=vec4(col*fade*uGain*chargeUp*1.5,1.);}`);
+
+// --- shockwave
+const PW = prog(HEAD+`
+in vec3 aPos; uniform mat4 uVP; uniform float uScale,uY; out vec2 vP;
+void main(){vP=aPos.xz*uScale; gl_Position=uVP*vec4(aPos.x*uScale,uY,aPos.z*uScale,1.);}`,
+HEAD+NOISE+`
+in vec2 vP; out vec4 o; uniform float uT,uGain,uTime; uniform vec3 uCore,uMid,uRim;
+void main(){
+  float r=length(vP), a=atan(vP.y,vP.x);
+  float e=1.-pow(1.-uT,2.4);
+  float R=e*12.0;
+  float wob=1.+0.045*sin(a*7.+uTime*2.)+0.03*fbm(vec2(a*3.,uTime));
+  float w=0.10+0.55*uT;
+  float band=smoothstep(w,0.,abs(r-R*wob));
+  float inner=smoothstep(w*2.2,0.,abs(r-R*wob*0.88))*0.22;
+  float dust=fbm(vec2(a*6.,r*0.8-uTime*1.2))*smoothstep(R*wob,R*wob-1.6,r)*smoothstep(R*wob-2.6,R*wob-1.5,r);
+  float fade=(1.-smoothstep(0.45,1.,uT));
+  vec3 col=mix(uRim,uCore,pow(band,3.))*pow(band,1.6)*1.1 + uMid*inner + uMid*dust*0.22;
+  o=vec4(col*fade*uGain*0.9,1.);}`);
+
+// --- pillar
+const PP = prog(HEAD+`
+in vec3 aPos; in vec3 aNor; in vec2 aUV;
+uniform mat4 uVP,uM; out vec3 vN,vW; out vec2 vUV;
+void main(){vec4 w=uM*vec4(aPos,1.);vW=w.xyz;vN=mat3(uM)*aNor;vUV=aUV;gl_Position=uVP*w;}`,
+HEAD+NOISE+`
+in vec3 vN,vW; in vec2 vUV; out vec4 o;
+uniform vec3 uEye,uCore,uMid,uRim; uniform float uT,uTime,uGain;
+void main(){
+  vec3 N=normalize(vN),V=normalize(uEye-vW);
+  float edge=pow(1.-abs(dot(N,V)),1.7);
+  float y=vUV.y;
+  float streak=fbm(vec2(vUV.x*13.,y*4.5-uTime*3.4));
+  streak=pow(streak,1.7);
+  float bolt=smoothstep(0.62,0.98,fbm(vec2(vUV.x*26.+uTime*1.3, y*2.2-uTime*6.)));
+  float rise=smoothstep(0.,0.28,uT);
+  float top=1.-smoothstep(0.35+0.65*rise,1.05,y);
+  float base=smoothstep(0.,0.06,y);
+  float fade=(1.-smoothstep(0.55,1.,uT));
+  float amp=pow(sin(sat(uT)*3.1416),0.55);
+  float m=(edge*0.85+0.30)*(streak*0.85+0.25)*top*base;
+  vec3 col=mix(uMid,uCore,sat(edge*0.6+bolt))*m + uRim*bolt*top*0.9;
+  o=vec4(col*fade*amp*uGain*1.9,1.);}`);
+
+// --- slash
+const PA = prog(HEAD+`
+in vec3 aPos; in vec2 aUV; uniform mat4 uVP,uM; out vec2 vUV;
+void main(){vUV=aUV;gl_Position=uVP*uM*vec4(aPos,1.);}`,
+HEAD+NOISE+`
+in vec2 vUV; out vec4 o; uniform float uT,uGain,uTime; uniform vec3 uCore,uMid,uRim;
+void main(){
+  float head=uT*1.85-0.28;
+  float d=head-vUV.x;
+  float body=smoothstep(0.,0.012,d)*exp(-max(d,0.)*5.4);
+  float across=pow(1.-abs(vUV.y),2.6);
+  float core=pow(across,11.);
+  float frill=fbm(vec2(vUV.x*22.,vUV.y*4.+uTime*3.))*0.5+0.6;
+  float fade=1.-smoothstep(0.72,1.,uT);
+  vec3 col=mix(uMid,uCore,core)*(across*0.9+core*1.8)+uRim*across*0.35;
+  o=vec4(col*body*frill*fade*uGain*3.4,1.);}`);
+
+// --- embers / charge particles
+const PPt = prog(HEAD+`
+in vec4 aSeed; uniform mat4 uVP; uniform float uTime,uT,uInward,uPx;
+out float vA; out float vK;
+void main(){
+  float life=fract(uTime*mix(0.16,0.34,aSeed.x)+aSeed.y);
+  float ang=aSeed.z*6.2831+uTime*mix(0.2,0.9,aSeed.w)*(uInward>.5?2.2:0.5);
+  float r0=mix(0.9,6.0,pow(aSeed.w,0.65));
+  float r=uInward>.5? mix(r0,0.30,pow(life,1.5)) : r0*(1.0-0.12*life);
+  float h=uInward>.5? life*mix(1.8,4.4,aSeed.x) : life*mix(1.0,3.6,aSeed.z);
+  vec3 p=vec3(cos(ang)*r, h+0.05, sin(ang)*r);
+  p.x+=sin(uTime*1.3+aSeed.y*9.)*0.18;
+  p.z+=cos(uTime*1.1+aSeed.x*7.)*0.18;
+  vec4 cp=uVP*vec4(p,1.);
+  gl_Position=cp;
+  float sz=mix(1.2,3.6,aSeed.x)*(uInward>.5?1.5:1.0);
+  gl_PointSize=uPx*sz/max(cp.w,0.6)*8.0;
+  vA=sin(life*3.1416)*mix(0.35,1.0,aSeed.y);
+  vK=aSeed.w;}`,
+HEAD+`
+in float vA,vK; out vec4 o; uniform vec3 uCore,uMid,uRim; uniform float uGain;
+void main(){
+  vec2 d=gl_PointCoord-0.5; float r=length(d);
+  float a=exp(-r*r*13.)*(1.-smoothstep(0.42,0.5,r));
+  vec3 c=mix(uMid,uCore,pow(a,2.));
+  c=mix(c,uRim,vK*0.35);
+  o=vec4(c*a*vA*uGain*1.1,1.);}`);
+
+// --- sparks (lines)
+const PSp = prog(HEAD+`
+in vec4 aSeed; in float aEnd; uniform mat4 uVP; uniform float uT,uPx; out float vA;
+void main(){
+  float e=1.-pow(1.-uT,2.2);
+  float ang=aSeed.x*6.2831;
+  float el=mix(0.02,1.05,aSeed.y);
+  float spd=mix(5.,13.,aSeed.z);
+  float d=e*spd;
+  float tail=aEnd>.5? d-mix(0.5,2.2,aSeed.w) : d;
+  tail=max(tail,0.);
+  vec3 dir=vec3(cos(ang)*cos(el),sin(el),sin(ang)*cos(el));
+  vec3 p=dir*tail; p.y+=0.15-0.055*tail*tail*mix(0.4,1.2,aSeed.w);
+  gl_Position=uVP*vec4(p,1.);
+  vA=(1.-uT)*(aEnd>.5?0.05:1.0)*mix(0.5,1.,aSeed.z);}`,
+HEAD+`
+in float vA; out vec4 o; uniform vec3 uCore,uRim; uniform float uGain;
+void main(){o=vec4(mix(uRim,uCore,0.85)*vA*uGain*1.7,1.);}`);
+
+/* --- composer passes --- */
+const VS_FS=HEAD+`in vec2 aPos; out vec2 vUV;
+void main(){vUV=aPos*.5+.5;gl_Position=vec4(aPos,0.,1.);}`;
+
+const PBright = prog(VS_FS,HEAD+`
+in vec2 vUV; out vec4 o; uniform sampler2D tS; uniform float uThr;
+void main(){vec3 c=texture(tS,vUV).rgb;
+  float l=dot(c,vec3(.2126,.7152,.0722));
+  float k=max(l-uThr,0.)/max(l,1e-4);
+  o=vec4(c*k,1.);}`);
+
+const PBlur = prog(VS_FS,HEAD+`
+in vec2 vUV; out vec4 o; uniform sampler2D tS; uniform vec2 uDir;
+void main(){
+  vec3 s=texture(tS,vUV).rgb*0.2270270270;
+  s+=texture(tS,vUV+uDir*1.3846153846).rgb*0.3162162162;
+  s+=texture(tS,vUV-uDir*1.3846153846).rgb*0.3162162162;
+  s+=texture(tS,vUV+uDir*3.2307692308).rgb*0.0702702703;
+  s+=texture(tS,vUV-uDir*3.2307692308).rgb*0.0702702703;
+  o=vec4(s,1.);}`);
+
+const PComp = prog(VS_FS,HEAD+NOISE+`
+in vec2 vUV; out vec4 o;
+uniform sampler2D tS,tB0,tB1,tB2;
+uniform float uInt,uExp,uCon,uCA,uVig,uGrn,uTime,uFlash;
+uniform vec3 uCore,uAmb;
+vec3 grab(vec2 uv){
+  return texture(tS,uv).rgb
+       + (texture(tB0,uv).rgb*0.60 + texture(tB1,uv).rgb*0.85 + texture(tB2,uv).rgb*1.0)*uInt;}
+void main(){
+  vec2 d=vUV-0.5; float r2=dot(d,d);
+  vec2 off=d*r2*uCA*0.016;
+  vec3 c;
+  c.r=grab(vUV+off).r; c.g=grab(vUV).g; c.b=grab(vUV-off).b;
+  c+=uCore*uFlash;
+  c*=uExp;
+  c=(c-0.5)*uCon+0.5;                                   // contrast
+  c=max(c,0.);
+  c=mix(c,c*vec3(0.92,0.97,1.12)+uAmb*0.05,0.55);       // 藍寄りのグレード
+  c=(c*(2.51*c+0.03))/(c*(2.43*c+0.59)+0.14);           // ACES風トーンマップ
+  c*=1.-uVig*r2*1.35;
+  c=pow(max(c,0.),vec3(1./2.2));
+  c+=(hash21(vUV*vec2(1024.,768.)+fract(uTime))-0.5)*uGrn*(0.35+0.65*dot(c,vec3(.33)));
+  o=vec4(max(c,0.),1.);}`);
+
+/* ---------- render targets ---------- */
+const IFMT = HDR? gl.RGBA16F : gl.RGBA8;
+const ITYP = HDR? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+function makeRT(w,h,depth){
+  const tex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.texImage2D(gl.TEXTURE_2D,0,IFMT,w,h,0,gl.RGBA,ITYP,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const fb=gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
+  let rb=null;
+  if(depth){rb=gl.createRenderbuffer();gl.bindRenderbuffer(gl.RENDERBUFFER,rb);
+    gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,w,h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,rb);}
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  return {fb,tex,rb,w,h};
+}
+let RT=null, BL=[];
+function resize(){
+  const dpr=Math.min(devicePixelRatio||1,1.75);
+  const w=Math.max(2,Math.round(cv.clientWidth*dpr)), h=Math.max(2,Math.round(cv.clientHeight*dpr));
+  if(cv.width===w&&cv.height===h)return;
+  cv.width=w;cv.height=h;
+  [RT,...BL.flat()].forEach(t=>{if(t){gl.deleteTexture(t.tex);gl.deleteFramebuffer(t.fb);if(t.rb)gl.deleteRenderbuffer(t.rb);}});
+  RT=makeRT(w,h,true);
+  BL=[2,4,8].map(k=>[makeRT(Math.max(2,w>>Math.log2(k)),Math.max(2,h>>Math.log2(k))),
+                     makeRT(Math.max(2,w>>Math.log2(k)),Math.max(2,h>>Math.log2(k)))]);
+}
+new ResizeObserver(resize).observe(cv);
+
+/* ---------- draw helpers ---------- */
+function bindF(p,b,loc,size,stride,off){
+  gl.bindBuffer(gl.ARRAY_BUFFER,b);
+  const l=gl.getAttribLocation(p,loc);
+  if(l<0)return;
+  gl.enableVertexAttribArray(l);
+  gl.vertexAttribPointer(l,size,gl.FLOAT,false,stride*4,off*4);
+}
+function fsQuad(p){gl.useProgram(p);bindF(p,fsTri,'aPos',2,2,0);gl.drawArrays(gl.TRIANGLES,0,3);}
+function setPal(p){gl.uniform3fv(p.u.uCore,PAL.core);gl.uniform3fv(p.u.uMid,PAL.mid);
+  gl.uniform3fv(p.u.uRim,PAL.rim);}
+
+/* ---------- state ---------- */
+const UI={thr:.62,int:1.25,rad:1.15,exp:1.06,con:1.12,ca:.55,vig:.78,grn:.055,
+          orb:.34,hgt:2.05,dst:9.4,shk:1};
+let time=0, playing=true, looping=true, speed=1, clock=0;
+
+/* ---------- main render ---------- */
+function render(dt){
+  resize();
+  clock+=dt;
+  if(playing){time+=dt*speed; if(time>DUR){ if(looping)time-=DUR; else {time=DUR;playing=false;syncPlay();} }}
+  evalTracks(time);
+
+  // camera（発破に合わせたシェイク＋寄り）
+  const burst=T.burst.t>=0?T.burst.t:-1;
+  const hit = burst>=0? Math.pow(1-burst,3) : 0;
+  const shake=hit*UI.shk*0.30;
+  const orb=UI.orb + clock*0.045 + (Math.random()-0.5)*shake*0.35;
+  const dist=UI.dst - hit*1.15;
+  const eye=[Math.sin(orb)*dist, UI.hgt+ (Math.random()-.5)*shake*0.9, Math.cos(orb)*dist];
+  const tgt=[0,1.55+(Math.random()-.5)*shake*0.7,0];
+  const V=M4.look(eye,tgt,[0,1,0]);
+  const P=M4.persp(0.72,cv.width/cv.height,0.1,120);
+  const VP=M4.mul(P,V);
+
+  const sig=T.sigil.t, glow = sig>=0 ? (0.35+0.65*Math.sin(Math.min(sig,1)*Math.PI))*T.sigil.gain*(T.sigil.on?1:0) : 0;
+
+  // ---- scene pass ----
+  gl.bindFramebuffer(gl.FRAMEBUFFER,RT.fb);
+  gl.viewport(0,0,RT.w,RT.h);
+  gl.clearColor(PAL.amb[0]*0.10,PAL.amb[1]*0.10,PAL.amb[2]*0.13,1);
+  gl.clearDepth(1); gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.disable(gl.BLEND);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+  // ground
+  gl.useProgram(PG); bindF(PG,quadXZ,'aPos',3,3,0);
+  gl.uniformMatrix4fv(PG.u.uVP,false,VP);
+  gl.uniform1f(PG.u.uScale,26); gl.uniform3fv(PG.u.uAmb,PAL.amb);
+  gl.uniform3fv(PG.u.uMid,PAL.mid); gl.uniform1f(PG.u.uGlow,glow);
+  gl.drawArrays(gl.TRIANGLES,0,6);
+
+  // ninja
+  gl.useProgram(PN); bindF(PN,NINJA.b,'aPos',3,6,0); bindF(PN,NINJA.b,'aNor',3,6,3);
+  gl.uniformMatrix4fv(PN.u.uVP,false,VP);
+  gl.uniformMatrix4fv(PN.u.uM,false,M4.trs([0,0,0],0.30,[1,1,1]));
+  gl.uniform3fv(PN.u.uEye,eye); gl.uniform3fv(PN.u.uMid,PAL.mid);
+  gl.uniform3fv(PN.u.uCore,PAL.core); gl.uniform1f(PN.u.uGlow,glow);
+  gl.uniform1f(PN.u.uUp,glow*0.9+(T.pillar.t>=0?0.6:0));
+  gl.drawArrays(gl.TRIANGLES,0,NINJA.n);
+
+  // ---- additive layers ----
+  gl.depthMask(false); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE);
+
+  const act=id=>T[id].on&&T[id].t>=0;
+
+  if(act('sigil')){
+    gl.useProgram(PS); bindF(PS,quadXZ,'aPos',3,3,0);
+    gl.uniformMatrix4fv(PS.u.uVP,false,VP);
+    gl.uniform1f(PS.u.uScale,3.8); gl.uniform1f(PS.u.uY,0.015);
+    gl.uniform1f(PS.u.uT,T.sigil.t); gl.uniform1f(PS.u.uTime,clock);
+    gl.uniform1f(PS.u.uGain,T.sigil.gain); setPal(PS);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+  if(act('shock')){
+    gl.useProgram(PW); bindF(PW,quadXZ,'aPos',3,3,0);
+    gl.uniformMatrix4fv(PW.u.uVP,false,VP);
+    gl.uniform1f(PW.u.uScale,16); gl.uniform1f(PW.u.uY,0.03);
+    gl.uniform1f(PW.u.uT,T.shock.t); gl.uniform1f(PW.u.uTime,clock);
+    gl.uniform1f(PW.u.uGain,T.shock.gain); setPal(PW);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+  if(act('pillar')){
+    const t=T.pillar.t;
+    gl.useProgram(PP);
+    bindF(PP,CYL.b,'aPos',3,8,0);bindF(PP,CYL.b,'aNor',3,8,3);bindF(PP,CYL.b,'aUV',2,8,6);
+    gl.uniformMatrix4fv(PP.u.uVP,false,VP);
+    const h=2.0+16.0*easeOut(Math.min(t*2.1,1));
+    const rad=0.72*(0.55+0.45*Math.sin(Math.min(t,1)*Math.PI))+0.32*Math.exp(-t*9);
+    gl.uniformMatrix4fv(PP.u.uM,false,M4.trs([0,0,0],0,[rad,h,rad]));
+    gl.uniform3fv(PP.u.uEye,eye); gl.uniform1f(PP.u.uT,t);
+    gl.uniform1f(PP.u.uTime,clock); gl.uniform1f(PP.u.uGain,T.pillar.gain); setPal(PP);
+    gl.disable(gl.CULL_FACE);
+    gl.drawArrays(gl.TRIANGLES,0,CYL.n);
+  }
+  if(act('slash')){
+    gl.useProgram(PA); bindF(PA,ARC.b,'aPos',3,5,0); bindF(PA,ARC.b,'aUV',2,5,3);
+    gl.uniformMatrix4fv(PA.u.uVP,false,VP);
+    // カメラ正対のビルボード＋面内回転（斜め袈裟斬り）
+    const S=2.25, cen=[0,2.05,0];
+    let f=[eye[0]-cen[0],eye[1]-cen[1],eye[2]-cen[2]];
+    let fl=Math.hypot(...f); f=f.map(v=>v/fl);
+    let rt=[f[2],0,-f[0]]; let rl=Math.hypot(...rt)||1; rt=rt.map(v=>v/rl);
+    const up=[f[1]*rt[2]-f[2]*rt[1], f[2]*rt[0]-f[0]*rt[2], f[0]*rt[1]-f[1]*rt[0]];
+    const th=3.62, ct=Math.cos(th), st=Math.sin(th);
+    const ax=rt.map((v,i)=>(v*ct+up[i]*st)*S);
+    const ay=rt.map((v,i)=>(-v*st+up[i]*ct)*S);
+    gl.uniformMatrix4fv(PA.u.uM,false,new Float32Array([
+      ax[0],ax[1],ax[2],0, ay[0],ay[1],ay[2],0, f[0]*S,f[1]*S,f[2]*S,0, cen[0],cen[1],cen[2],1]));
+    gl.uniform1f(PA.u.uT,T.slash.t); gl.uniform1f(PA.u.uTime,clock);
+    gl.uniform1f(PA.u.uGain,T.slash.gain); setPal(PA);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,ARC.n);
+  }
+  for(const [id,inward] of [['embers',0],['charge',1]]){
+    if(!act(id))continue;
+    gl.useProgram(PPt); bindF(PPt,P_BUF,'aSeed',4,4,0);
+    gl.uniformMatrix4fv(PPt.u.uVP,false,VP);
+    gl.uniform1f(PPt.u.uTime,clock); gl.uniform1f(PPt.u.uT,T[id].t);
+    gl.uniform1f(PPt.u.uInward,inward); gl.uniform1f(PPt.u.uPx,cv.height/900);
+    gl.uniform1f(PPt.u.uGain,T[id].gain*(inward?1.35*(0.3+T[id].t):0.55)); setPal(PPt);
+    gl.drawArrays(gl.POINTS,0,inward?Math.floor(P_N*0.55):P_N);
+  }
+  if(act('sparks')){
+    gl.useProgram(PSp); bindF(PSp,S_BUF,'aSeed',4,5,0); bindF(PSp,S_BUF,'aEnd',1,5,4);
+    gl.uniformMatrix4fv(PSp.u.uVP,false,VP);
+    gl.uniform1f(PSp.u.uT,T.sparks.t); gl.uniform1f(PSp.u.uPx,1);
+    gl.uniform1f(PSp.u.uGain,T.sparks.gain);
+    gl.uniform3fv(PSp.u.uCore,PAL.core); gl.uniform3fv(PSp.u.uRim,PAL.rim);
+    gl.drawArrays(gl.LINES,0,S_N*2);
+  }
+
+  // ---- composer ----
+  gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+  gl.activeTexture(gl.TEXTURE0);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER,BL[0][0].fb);
+  gl.viewport(0,0,BL[0][0].w,BL[0][0].h);
+  gl.useProgram(PBright); gl.bindTexture(gl.TEXTURE_2D,RT.tex);
+  gl.uniform1i(PBright.u.tS,0); gl.uniform1f(PBright.u.uThr,UI.thr);
+  fsQuad(PBright);
+
+  let src=BL[0][0];
+  for(let i=0;i<BL.length;i++){
+    const [a,b]=BL[i];
+    if(i>0){ // downsample from previous level
+      gl.bindFramebuffer(gl.FRAMEBUFFER,a.fb); gl.viewport(0,0,a.w,a.h);
+      gl.useProgram(PBlur); gl.bindTexture(gl.TEXTURE_2D,src.tex);
+      gl.uniform1i(PBlur.u.tS,0); gl.uniform2f(PBlur.u.uDir,0,0);
+      fsQuad(PBlur);
+    }
+    const rx=UI.rad/a.w, ry=UI.rad/a.h;
+    gl.bindFramebuffer(gl.FRAMEBUFFER,b.fb); gl.viewport(0,0,b.w,b.h);
+    gl.useProgram(PBlur); gl.bindTexture(gl.TEXTURE_2D,a.tex);
+    gl.uniform1i(PBlur.u.tS,0); gl.uniform2f(PBlur.u.uDir,rx,0); fsQuad(PBlur);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,a.fb);
+    gl.bindTexture(gl.TEXTURE_2D,b.tex);
+    gl.uniform2f(PBlur.u.uDir,0,ry); fsQuad(PBlur);
+    src=a;
+  }
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  gl.viewport(0,0,cv.width,cv.height);
+  gl.useProgram(PComp);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,RT.tex);      gl.uniform1i(PComp.u.tS,0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,BL[0][0].tex);gl.uniform1i(PComp.u.tB0,1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D,BL[1][0].tex);gl.uniform1i(PComp.u.tB1,2);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D,BL[2][0].tex);gl.uniform1i(PComp.u.tB2,3);
+  gl.uniform1f(PComp.u.uInt,UI.int); gl.uniform1f(PComp.u.uExp,UI.exp);
+  gl.uniform1f(PComp.u.uCon,UI.con); gl.uniform1f(PComp.u.uCA,UI.ca);
+  gl.uniform1f(PComp.u.uVig,UI.vig); gl.uniform1f(PComp.u.uGrn,UI.grn);
+  gl.uniform1f(PComp.u.uTime,clock);
+  const fl = (T.burst.on&&T.burst.t>=0)? Math.pow(1-T.burst.t,4)*0.85*T.burst.gain : 0;
+  gl.uniform1f(PComp.u.uFlash,fl);
+  gl.uniform3fv(PComp.u.uCore,PAL.core); gl.uniform3fv(PComp.u.uAmb,PAL.amb);
+  fsQuad(PComp);
+  gl.activeTexture(gl.TEXTURE0);
+}
+
+/* =====================  UI  ===================== */
+const tracksEl=document.getElementById('tracks');
+const laneRefs=[];
+TRACKS.forEach(tr=>{
+  const row=document.createElement('div');row.className='trk';
+  row.innerHTML=`<div class="nm"><span class="dot" style="background:${tr.col}"></span>${tr.jp}</div>
+    <input class="gn" type="range" min="0" max="2" step="0.01" value="1">
+    <div class="lane"></div>`;
+  const nm=row.querySelector('.nm'), lane=row.querySelector('.lane');
+  nm.style.cursor='pointer';
+  nm.onclick=()=>{T[tr.id].on=!T[tr.id].on;nm.classList.toggle('off',!T[tr.id].on);};
+  row.querySelector('.gn').oninput=e=>T[tr.id].gain=+e.target.value;
+  for(const [a,b] of tr.clips){
+    const c=document.createElement('div');c.className='clip';
+    c.style.left=(a/DUR*100)+'%';c.style.width=((b-a)/DUR*100)+'%';
+    c.style.background=`linear-gradient(90deg,${tr.col}44,${tr.col}bb)`;
+    lane.appendChild(c);
+  }
+  laneRefs.push(lane);
+  tracksEl.appendChild(row);
+});
+// ruler
+const ruler=document.getElementById('ruler');
+for(let s=0;s<=Math.floor(DUR*2);s++){
+  const x=(s*0.5)/DUR*100;
+  const i=document.createElement('i');i.style.left=x+'%';ruler.appendChild(i);
+  if(s%2===0){const u=document.createElement('u');u.style.left=x+'%';u.textContent=(s/2).toFixed(1)+'s';ruler.appendChild(u);}
+}
+// playhead + scrub
+const ph=document.getElementById('ph'), scrub=document.getElementById('scrub'), tc=document.getElementById('tc');
+function phX(){const r=scrub.getBoundingClientRect(), tlr=document.getElementById('tl').getBoundingClientRect();
+  return (r.left-tlr.left)+r.width*(time/DUR);}
+let dragging=false;
+function setFromX(cx){const r=scrub.getBoundingClientRect();time=clamp((cx-r.left)/r.width,0,1)*DUR;}
+scrub.addEventListener('pointerdown',e=>{dragging=true;scrub.setPointerCapture(e.pointerId);setFromX(e.clientX);});
+scrub.addEventListener('pointermove',e=>{if(dragging)setFromX(e.clientX);});
+scrub.addEventListener('pointerup',e=>{dragging=false;});
+
+const playBtn=document.getElementById('play'), loopBtn=document.getElementById('loop');
+function syncPlay(){playBtn.textContent=playing?'❚❚':'▶';playBtn.classList.toggle('on',playing);}
+playBtn.onclick=()=>{playing=!playing;if(playing&&time>=DUR)time=0;syncPlay();};
+loopBtn.onclick=()=>{looping=!looping;loopBtn.classList.toggle('on',looping);};
+document.getElementById('spd').oninput=e=>{speed=+e.target.value;
+  document.getElementById('spdv').textContent=speed.toFixed(2)+'x';};
+addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();playBtn.onclick();}});
+syncPlay();
+
+// composer sliders
+const map={c_thr:'thr',c_int:'int',c_rad:'rad',c_exp:'exp',c_con:'con',c_ca:'ca',c_vig:'vig',
+           c_grn:'grn',c_orb:'orb',c_hgt:'hgt',c_dst:'dst',c_shk:'shk'};
+for(const [id,key] of Object.entries(map)){
+  const el=document.getElementById(id), out=el.parentElement.querySelector('.v');
+  const upd=()=>{UI[key]=+el.value; out.textContent=(+el.value).toFixed(2);};
+  el.oninput=upd; upd();
+}
+// presets
+document.querySelectorAll('#presets button').forEach(b=>{
+  b.onclick=()=>{document.querySelectorAll('#presets button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); PAL=PRESETS[+b.dataset.p];};
+});
+// export
+document.getElementById('snap').onclick=()=>{
+  const a=document.createElement('a');
+  a.download=`tsukikage_vfx_${(time*1000|0)}ms.png`; a.href=cv.toDataURL('image/png'); a.click();};
+const recBtn=document.getElementById('rec');
+let recorder=null;
+recBtn.onclick=()=>{
+  if(recorder){recorder.stop();return;}
+  const chunks=[], st=cv.captureStream(60);
+  const mime=['video/webm;codecs=vp9','video/webm'].find(m=>MediaRecorder.isTypeSupported(m));
+  recorder=new MediaRecorder(st,{mimeType:mime,videoBitsPerSecond:14e6});
+  recorder.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+  recorder.onstop=()=>{
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob(chunks,{type:'video/webm'}));
+    a.download='tsukikage_vfx.webm'; a.click();
+    recorder=null; recBtn.classList.remove('on'); recBtn.textContent='WebM 録画（1ループ）';
+  };
+  time=0; playing=true; syncPlay();
+  recorder.start(); recBtn.classList.add('on'); recBtn.textContent='■ 停止';
+  setTimeout(()=>recorder&&recorder.stop(), (DUR/speed)*1000+120);
+};
+
+/* ---------- loop ---------- */
+let last=performance.now();
+function frame(now){
+  const dt=Math.min((now-last)/1000,0.05); last=now;
+  try{ render(dt); }catch(err){ console.error(err); }
+  ph.style.left=phX()+'px';
+  tc.textContent=`${String((time/60)|0).padStart(2,'0')}:${(time%60).toFixed(2).padStart(5,'0')}`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+// オフラインレンダ用フック（連番書き出し時は clock も時刻に固定して決定的にする）
+window.__vfx={setTime(t){time=t;clock=t;playing=false;},pal(i){PAL=PRESETS[i];},
+  set(k,v){UI[k]=v;}, dur:DUR};
+</script>
+</body>
+</html>
