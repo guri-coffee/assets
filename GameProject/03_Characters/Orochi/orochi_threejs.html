@@ -92,12 +92,12 @@ function applyGrad(geo, yBot, yTop){
 }
 
 /* ================= build =================
-   三面図採寸: 全高1.0m / 頭径0.37m / 首半径0.11 / 裾の膨らみ0.165 /
-   尻尾は土台を左→前→右へ約3/4周巻いて右前で先細り。
+   三面図採寸: 全高1.0m / 頭は前後に長い（側面図） / 首半径0.11 /
+   裾の膨らみ0.165 / 尻尾は土台を左→前→右へ巻いて右前で先細り。
    リグ前提の構成:
    - body: 首→胴→尻尾の先まで1本の連続チューブ（背骨直交エッジループ）
-   - head: 独立メッシュ（鼻先の膨らみを頂点変形で付与）
-   - face: 目・マーキング・口などは別オブジェクト（頭ボーン追従想定） */
+   - head: 変形楕円体の独立メッシュ（頭ボーン担当）
+   - face: 顔パーツは頭サーフェス関数に追従する別オブジェクト群 */
 const model = new THREE.Group();
 model.name = 'orochi';
 scene.add(model);
@@ -112,33 +112,53 @@ const darkMat  = smooth(C.dark, 0.9);
 const pinkMat  = smooth(C.pink, 0.8);
 const glintMat = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.2, emissive:0xffffff, emissiveIntensity:0.4 });
 
-/* ---- 頭（球＋鼻先の膨らみ。楕円率は側面図準拠） ---- */
-const HC = new THREE.Vector3(0, 0.815, 0.015);  // 頭の中心
-const HR = 0.185;                               // 頭の半径
-const EY = 1.03;                                // 縦の楕円率
+/* ---- 頭サーフェス（三面図の頭部形状を1つの関数で定義） ----
+   側面図: 縦より前後に長い / マズルは前に行くほど下がり・細くなる /
+   クラウンの頂点はやや後ろ寄り / 顔はわずかに前傾 */
+const HC = new THREE.Vector3(0, 0.795, 0.015);  // 頭の中心
+const HR = 0.180;                               // 横半径
+const HY = 1.02;                                // 縦比率
+const HZ = 1.24;                                // 前後比率（側面図準拠で長め）
+const TILT = 6 * Math.PI/180;                   // 前傾（鼻先が下がる）
+const sstep = t => { t = THREE.MathUtils.clamp(t, 0, 1); return t*t*(3-2*t); };
+function headSurf(dir){
+  const c = HR*HZ;
+  let x = dir.x*HR, y = dir.y*HR*HY, z = dir.z*c;
+  /* 後頭部0→鼻先1へ連続に効かせる（クリースを作らない） */
+  const f = Math.pow((z/c + 1)/2, 3);
+  y -= 0.30*HR*f;                               // 前へ行くほど下がる（マズルの下がり）
+  x *= 1 - 0.15*f;                              // 前細り（目が正面から見える程度に）
+  const under = sstep(-y/(0.25*HR));
+  y *= 1 - 0.18*f*under;                        // マズル下面（あご）を薄く・滑らかに
+  /* クラウン（頭頂やや後ろ）の盛り */
+  const g = Math.exp(-Math.pow((z/c + 0.45)/0.50, 2));
+  y += 0.05*HR*g*sstep(y/(0.30*HR));
+  /* 後頭部下側を首へ向けて絞る（首と滑らかに繋ぐ） */
+  z *= 1 - 0.16*Math.max(0, -dir.y)*Math.max(0, -dir.z);
+  /* 前傾チルト */
+  const cy = Math.cos(TILT), sy = Math.sin(TILT);
+  return new THREE.Vector3(x, y*cy - z*sy, z*cy + y*sy);
+}
 {
-  const g = new THREE.SphereGeometry(HR, 36, 28);
-  g.scale(1, EY, 1);
-  /* 鼻先: 前面下部をなだらかに前へ押し出す */
+  const g = new THREE.SphereGeometry(1, 48, 36);
   const p = g.attributes.position;
+  const v = new THREE.Vector3();
   for(let i=0; i<p.count; i++){
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    if(z > 0){
-      const f = Math.pow(z/HR, 2) * Math.exp(-Math.pow((y/HR + 0.28)/0.38, 2));
-      p.setZ(i, z + 0.030*f);
-    }
+    v.set(p.getX(i), p.getY(i), p.getZ(i)).normalize();
+    const s = headSurf(v);
+    p.setXYZ(i, s.x, s.y, s.z);
   }
   g.computeVertexNormals();
   g.translate(HC.x, HC.y, HC.z);
-  applyGrad(g, -0.4, 1.0);                      // 頭はほぼ最明部
+  applyGrad(g, -0.4, 1.0);
   const head = mesh(g, skinMat, model);
   head.name = 'head';
 }
 
-/* ---- 背骨カーブ（あご下 t=0 → 尻尾の先 t=1） ---- */
+/* ---- 背骨カーブ（あご下 t=0 → 尻尾の先 t=1。始点は頭の中に埋める） ---- */
 const spine = new THREE.CatmullRomCurve3([
-  new THREE.Vector3( 0.00, 0.84,  0.010),   // 頭の中（接続部）
-  new THREE.Vector3( 0.00, 0.64,  0.035),   // あご下
+  new THREE.Vector3( 0.00, 0.83,  0.000),   // 頭の中（接続部）
+  new THREE.Vector3( 0.00, 0.64,  0.030),   // あご下
   new THREE.Vector3( 0.00, 0.51, -0.005),   // 首の反り
   new THREE.Vector3( 0.00, 0.38, -0.020),
   new THREE.Vector3( 0.00, 0.26,  0.020),   // 腹のふくらみ
@@ -156,8 +176,8 @@ const spine = new THREE.CatmullRomCurve3([
 /* 半径プロファイル: 首（細）→裾（太）→巻き尾（先細り） */
 const RKEYS = [
   [0.000, 0.150], [0.080, 0.115], [0.160, 0.108], [0.240, 0.125],
-  [0.320, 0.158], [0.400, 0.165],                                  // 裾の膨らみ
-  [0.500, 0.140], [0.600, 0.115], [0.720, 0.090],                  // 巻き尾
+  [0.320, 0.158], [0.400, 0.165],
+  [0.500, 0.140], [0.600, 0.115], [0.720, 0.090],
   [0.820, 0.065], [0.920, 0.038], [1.000, 0.005],
 ];
 function radiusAt(t){
@@ -172,7 +192,7 @@ function radiusAt(t){
 }
 
 function buildSnake(curve, rings, radial){
-  /* Frenetフレームは急カーブ・ねじれで法線が暴れて断面が潰れるため、
+  /* Frenetフレームは急カーブ・ねじれで法線が暴れるため、
      平行移動フレーム（parallel transport）で安定した断面を作る */
   const pts = [], tans = [];
   for(let i=0; i<=rings; i++){
@@ -232,53 +252,51 @@ body.name = 'body';
   mesh(g, skinMat, model);
 }
 
-/* ---- 顔・頭表面まわり ---- */
+/* ---- 顔パーツ（頭サーフェス追従。頭ボーンに親子付け想定） ---- */
 const face = new THREE.Group();
 face.name = 'face';
 model.add(face);
 
-/* 頭表面の方向（yaw: 左右, pitch: 上下, 正面=+Z）と表面上の点（楕円対応） */
 function hdir(yawDeg, pitchDeg){
   const y = yawDeg*Math.PI/180, p = pitchDeg*Math.PI/180;
   return new THREE.Vector3(Math.sin(y)*Math.cos(p), Math.sin(p), Math.cos(y)*Math.cos(p));
 }
-/* 鼻先の膨らみ（頭メッシュの頂点変形と同じ式。顔パーツもこの面に追従させる） */
-function snout(dir){
-  return dir.z > 0
-    ? 0.030 * dir.z*dir.z * Math.exp(-Math.pow((dir.y*EY + 0.28)/0.38, 2))
-    : 0;
+function surfPoint(yaw, pitch, depth=1.0){
+  return headSurf(hdir(yaw, pitch)).multiplyScalar(depth).add(HC);
 }
-function onHead(dir, depth=1.0){
-  return new THREE.Vector3(
-    HC.x + dir.x*HR*depth,
-    HC.y + dir.y*HR*EY*depth,
-    HC.z + dir.z*HR*depth + snout(dir)*Math.min(depth, 1));
+/* 実サーフェスの接ベクトルから法線を数値微分で求める */
+function surfBasis(yaw, pitch){
+  const e = 1.5;
+  const p  = surfPoint(yaw, pitch);
+  const du = surfPoint(yaw+e, pitch).sub(p.clone());
+  const dv = surfPoint(yaw, pitch+e).sub(p.clone());
+  const n = new THREE.Vector3().crossVectors(du, dv).normalize();
+  if(n.dot(hdir(yaw, pitch)) < 0) n.negate();
+  const up = dv.clone().normalize();
+  const side = new THREE.Vector3().crossVectors(up, n).normalize();
+  const upO = new THREE.Vector3().crossVectors(n, side).normalize();
+  return { p, n, up:upO, side };
 }
 /* 表面に貼り付く扁平パーツ（+Z=法線 / +Y=表面沿いの上） */
-function facePatch(mat, sx, sy, sz, yaw, pitch, depth=0.97, name=''){
+function facePatch(mat, sx, sy, sz, yaw, pitch, off=0, name=''){
+  const b = surfBasis(yaw, pitch);
   const m = mesh(new THREE.SphereGeometry(1, 20, 14), mat, face);
-  const dir = hdir(yaw, pitch);
-  m.position.copy(onHead(dir, depth));
+  m.position.copy(b.p).addScaledVector(b.n, off);
   m.scale.set(sx, sy, sz);
-  const z = dir.clone();
-  const y = new THREE.Vector3(0,1,0).addScaledVector(z, -z.y).normalize();
-  const x = new THREE.Vector3().crossVectors(y, z);
-  m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+  m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(b.side.negate(), b.up, b.n));
   if(name) m.name = name;
   return m;
 }
-/* 頭表面に沿うリボン（すじ・眉・口などの描き線用）
-   path: [yaw,pitch]の列 / halfW(u): 半幅関数 */
+/* 頭表面に沿うリボン（すじ・眉・口などの描き線用） */
 function headRibbon(mat, path, halfW, lift=0.004, name=''){
   const N = 48;
-  const pts = [], dirs = [];
-  const cr = path.map(v => new THREE.Vector2(v[0], v[1]));
-  const curve2 = new THREE.SplineCurve(cr);
+  const curve2 = new THREE.SplineCurve(path.map(v => new THREE.Vector2(v[0], v[1])));
+  const pts = [], nrms = [];
   for(let i=0; i<=N; i++){
     const yp = curve2.getPoint(i/N);
-    const d = hdir(yp.x, yp.y);
-    dirs.push(d);
-    pts.push(onHead(d, 1.0).addScaledVector(d, lift));
+    const b = surfBasis(yp.x, yp.y);
+    pts.push(b.p.clone().addScaledVector(b.n, lift));
+    nrms.push(b.n);
   }
   const pos = [], idx = [];
   for(let i=0; i<=N; i++){
@@ -286,11 +304,11 @@ function headRibbon(mat, path, halfW, lift=0.004, name=''){
     const tan = (i===0 ? pts[1].clone().sub(pts[0])
               : i===N ? pts[N].clone().sub(pts[N-1])
               : pts[i+1].clone().sub(pts[i-1])).normalize();
-    const side = new THREE.Vector3().crossVectors(dirs[i], tan).normalize();
+    const side = new THREE.Vector3().crossVectors(nrms[i], tan).normalize();
     const w = halfW(u);
     const a = pts[i].clone().addScaledVector(side, w);
-    const b = pts[i].clone().addScaledVector(side, -w);
-    pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    const b2 = pts[i].clone().addScaledVector(side, -w);
+    pos.push(a.x, a.y, a.z, b2.x, b2.y, b2.z);
     if(i < N){ const k = i*2; idx.push(k, k+1, k+2,  k+1, k+3, k+2); }
   }
   const geo = new THREE.BufferGeometry();
@@ -305,37 +323,36 @@ function headRibbon(mat, path, halfW, lift=0.004, name=''){
 }
 const taper = max => u => max * Math.pow(Math.sin(Math.PI*u), 0.7);
 
-/* 目: 赤い虹彩＋暗赤の瞳孔＋白ハイライト */
+/* 目: 赤い虹彩＋暗赤の瞳孔＋白ハイライト（側面図: 目は前寄り上部） */
 for(const s of [-1, 1]){
-  facePatch(eyeMat,   0.052, 0.060, 0.020, 30*s,  0, 0.95, s<0?'eye_L':'eye_R');
-  facePatch(pupilMat, 0.032, 0.038, 0.014, 30*s,  0, 1.005);
-  facePatch(glintMat, 0.014, 0.016, 0.009, 26*s,  6, 1.040);
+  facePatch(eyeMat,   0.056, 0.067, 0.028, 34*s,  2, 0.000, s<0?'eye_L':'eye_R');
+  facePatch(pupilMat, 0.034, 0.042, 0.018, 34*s,  2, 0.010);
+  facePatch(glintMat, 0.013, 0.015, 0.008, 30*s,  9, 0.020);
   /* 眉（困り眉: 内側が上・外へ下がる短い線） */
-  headRibbon(darkMat, [[13*s, 22], [20*s, 20], [27*s, 16]], taper(0.005), 0.004);
-  /* 目の後ろの炎マーキング（側面図: 目尻から後方へ流れて尖る） */
-  headRibbon(markMat, [[40*s, 4], [58*s, 8], [78*s, 9], [96*s, 6]], taper(0.014), 0.004);
+  headRibbon(darkMat, [[16*s, 27], [23*s, 25], [31*s, 20]], taper(0.005), 0.004);
+  /* 目の後ろの炎マーキング（側面図: 目尻から後方へ水平に流れて尖る） */
+  headRibbon(markMat, [[46*s, 6], [64*s, 9], [82*s, 9], [98*s, 6]], taper(0.013), 0.004);
   /* 内目尻下の小さな朱 */
-  facePatch(markMat, 0.026, 0.012, 0.008, 21*s, -11, 0.99);
+  facePatch(markMat, 0.024, 0.011, 0.007, 24*s, -7, 0.003);
 }
 
-/* 額→頭頂→後頭部の朱のすじ（正面・背面両方に見える帯） */
+/* 額→頭頂→後頭部の朱のすじ */
 headRibbon(markMat,
-  [[0, 22], [0, 50], [0, 85], [0, 120], [0, 152]],
-  taper(0.016), 0.0045, 'mark_crown');
+  [[0, 24], [0, 52], [0, 85], [0, 122], [0, 162]],
+  taper(0.013), 0.0045, 'mark_crown');
 
 /* 鼻先の点 */
-facePatch(darkMat, 0.006, 0.006, 0.006,  5.5, -13, 1.01);
-facePatch(darkMat, 0.006, 0.006, 0.006, -5.5, -13, 1.01);
+facePatch(darkMat, 0.005, 0.005, 0.005,  7, -4, 0.001);
+facePatch(darkMat, 0.005, 0.005, 0.005, -7, -4, 0.001);
 
-/* 口: 幅広のにっこり（側面図では口角が後方まで伸びる） */
+/* 口: 幅広のにっこり（側面図: 鼻先下から目の下まで伸びて口角が上がる） */
 headRibbon(darkMat,
-  [[-70, -3], [-52, -11], [-30, -18], [0, -21], [30, -18], [52, -11], [70, -3]],
-  u => 0.0032 + 0.0015*Math.sin(Math.PI*u), 0.0045, 'mouth');
-facePatch(pinkMat, 0.020, 0.009, 0.007, 0, -27, 1.005, 'mouth_inner');
+  [[-82, 10], [-66, 0], [-46, -8], [-24, -13], [0, -15], [24, -13], [46, -8], [66, 0], [82, 10]],
+  u => 0.0030 + 0.0015*Math.sin(Math.PI*u), 0.0045, 'mouth');
+facePatch(pinkMat, 0.018, 0.008, 0.006, 0, -21, 0.004, 'mouth_inner');
 
 /* ---- ひし形うろこハイライト（角丸ダイヤの薄押し出し） ---- */
 function diamondGeo(s){
-  /* 直線ダイヤ＋bevelで角を丸める */
   const sh = new THREE.Shape();
   sh.moveTo(0, s); sh.lineTo(s, 0); sh.lineTo(0, -s); sh.lineTo(-s, 0); sh.closePath();
   return new THREE.ExtrudeGeometry(sh, {
@@ -343,15 +360,15 @@ function diamondGeo(s){
   });
 }
 function headDiamond(s, yaw, pitch){
+  const b = surfBasis(yaw, pitch);
   const m = mesh(diamondGeo(s), patchMat, face);
-  const dir = hdir(yaw, pitch);
-  m.position.copy(onHead(dir, 0.985));
-  m.lookAt(onHead(dir, 3));
+  m.position.copy(b.p).addScaledVector(b.n, -0.003);
+  m.lookAt(b.p.clone().addScaledVector(b.n, 1));
   return m;
 }
 /* 額の左右クラスタ（すじを挟んで 左4・右3） */
-for(const [yaw, pitch, s] of [[-16,46,0.015],[-26,40,0.013],[-16,35,0.013],[-26,50,0.011]]) headDiamond(s, yaw, pitch);
-for(const [yaw, pitch, s] of [[ 17,44,0.015],[ 26,38,0.012],[ 19,33,0.011]]) headDiamond(s, yaw, pitch);
+for(const [yaw, pitch, s] of [[-16,48,0.015],[-26,42,0.013],[-16,37,0.013],[-26,52,0.011]]) headDiamond(s, yaw, pitch);
+for(const [yaw, pitch, s] of [[ 17,46,0.015],[ 26,40,0.012],[ 19,35,0.011]]) headDiamond(s, yaw, pitch);
 
 /* 体表面のひし形（胸・背中・首すじ） */
 function bodyDiamond(s, t, dirWorld, lift=0.99){
