@@ -139,8 +139,67 @@ function headSurf(dir){
   const cy = Math.cos(TILT), sy = Math.sin(TILT);
   return new THREE.Vector3(x, y*cy - z*sy, z*cy + y*sy);
 }
+/* ---- 顔テクスチャ（三面図の顔を2Dで描いて頭に投影する。
+        スタイライズド調の顔はジオメトリではなく絵で作るのが定石） ----
+   UV: 等距円筒 u=0.5が正面(+Z)、v=0.5+pitch/180。px()で度→ピクセル変換 */
+const TW = 2048, TH = 1024, D = TW/360;
+const px = (yaw, pitch) => [(0.5 + yaw/360)*TW, (0.5 - pitch/180)*TH];
+const cv = document.createElement('canvas');
+cv.width = TW; cv.height = TH;
+const ctx = cv.getContext('2d');
+ctx.fillStyle = '#ffffff';                       // 肌色は頂点カラー側で乗算
+ctx.fillRect(0, 0, TW, TH);
+function ell(yaw, pitch, rxDeg, ryDeg, fill, rot=0){
+  const [x, y] = px(yaw, pitch);
+  ctx.beginPath();
+  ctx.ellipse(x, y, rxDeg*D, ryDeg*D, rot, 0, Math.PI*2);
+  ctx.fillStyle = fill; ctx.fill();
+}
+function poly(pts, fill){
+  ctx.beginPath();
+  pts.forEach((p, i) => { const [x, y] = px(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+}
+function strokePath(pts, wDeg, color){
+  ctx.beginPath();
+  pts.forEach((p, i) => { const [x, y] = px(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.lineWidth = wDeg*D; ctx.strokeStyle = color;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+}
+const MARK = '#b5502e', DARK = '#232323';
+for(const s of [-1, 1]){
+  /* 目の後ろの炎マーキング（先に描いて目を上に重ねる） */
+  poly([[44*s,3],[52*s,10],[62*s,13],[74*s,13],[87*s,10],[100*s,6],
+        [87*s,4],[74*s,5.5],[62*s,5.5],[52*s,0],[44*s,-2]], MARK);
+  /* 内目尻下の朱のしずく */
+  poly([[20*s,-3],[26*s,-4],[28*s,-8],[23*s,-6.5],[19*s,-4.5]], MARK);
+  /* 目: 黒輪郭→赤虹彩→上側暗赤→ハイライト2つ（三面図準拠） */
+  const ex = 33*s, ey = 2;
+  ell(ex, ey, 13.8, 16.6, '#1c1c1c');
+  ell(ex, ey, 12.2, 15.0, '#d42020');
+  ctx.save();
+  { const [cx, cy] = px(ex, ey);
+    ctx.beginPath(); ctx.ellipse(cx, cy, 12.2*D, 15.0*D, 0, 0, Math.PI*2); ctx.clip(); }
+  ell(ex, ey - 8, 12.2, 12.0, '#8c1216');       // 上側を暗く（瞳の奥行き）
+  ctx.restore();
+  ell(ex - 4.2*s, ey + 5.5, 3.9, 4.6, '#ffffff');
+  ell(ex + 4.2*s, ey - 6.0, 1.6, 1.9, '#ffd6d6');
+  /* 困り眉 */
+  strokePath([[14*s,28],[22*s,26.5],[31*s,21]], 1.7, DARK);
+  /* 鼻の点 */
+  ell(7*s, -4, 1.1, 1.3, DARK);
+}
+/* 口: 幅広のにっこり（口角が上がる）＋中央下の口内ピンク */
+ell(0, -17.5, 4.4, 2.5, '#f0b6be');
+strokePath([[-80,10],[-64,0],[-45,-7.5],[-23,-12],[0,-13.5],[23,-12],[45,-7.5],[64,0],[80,10]], 2.0, DARK);
+const faceTex = new THREE.CanvasTexture(cv);
+faceTex.colorSpace = THREE.SRGBColorSpace;
+faceTex.anisotropy = 8;
+const headMat = new THREE.MeshStandardMaterial({ map: faceTex, vertexColors: true, roughness: 0.85 });
+
 {
-  const g = new THREE.SphereGeometry(1, 48, 36);
+  /* phiStart=270°でUV継ぎ目を後頭部に置く（顔面にシームを出さない） */
+  const g = new THREE.SphereGeometry(1, 64, 48, Math.PI*1.5);
   const p = g.attributes.position;
   const v = new THREE.Vector3();
   for(let i=0; i<p.count; i++){
@@ -151,7 +210,7 @@ function headSurf(dir){
   g.computeVertexNormals();
   g.translate(HC.x, HC.y, HC.z);
   applyGrad(g, -0.4, 1.0);
-  const head = mesh(g, skinMat, model);
+  const head = mesh(g, headMat, model);
   head.name = 'head';
 }
 
@@ -323,33 +382,13 @@ function headRibbon(mat, path, halfW, lift=0.004, name=''){
 }
 const taper = max => u => max * Math.pow(Math.sin(Math.PI*u), 0.7);
 
-/* 目: 赤い虹彩＋暗赤の瞳孔＋白ハイライト（側面図: 目は前寄り上部） */
-for(const s of [-1, 1]){
-  facePatch(eyeMat,   0.056, 0.067, 0.028, 34*s,  2, 0.000, s<0?'eye_L':'eye_R');
-  facePatch(pupilMat, 0.034, 0.042, 0.018, 34*s,  2, 0.010);
-  facePatch(glintMat, 0.013, 0.015, 0.008, 30*s,  9, 0.020);
-  /* 眉（困り眉: 内側が上・外へ下がる短い線） */
-  headRibbon(darkMat, [[16*s, 27], [23*s, 25], [31*s, 20]], taper(0.005), 0.004);
-  /* 目の後ろの炎マーキング（側面図: 目尻から後方へ水平に流れて尖る） */
-  headRibbon(markMat, [[46*s, 6], [64*s, 9], [82*s, 9], [98*s, 6]], taper(0.013), 0.004);
-  /* 内目尻下の小さな朱 */
-  facePatch(markMat, 0.024, 0.011, 0.007, 24*s, -7, 0.003);
-}
+/* 目・眉・口・鼻・炎マーキングはすべて顔テクスチャ側で描画（上のCanvas参照）。
+   ここでは立体のままにしたいパーツだけ残す */
 
-/* 額→頭頂→後頭部の朱のすじ */
+/* 額→頭頂→後頭部の朱のすじ（頭頂を跨ぐためリボンのまま） */
 headRibbon(markMat,
   [[0, 24], [0, 52], [0, 85], [0, 122], [0, 162]],
-  taper(0.013), 0.0045, 'mark_crown');
-
-/* 鼻先の点 */
-facePatch(darkMat, 0.005, 0.005, 0.005,  7, -4, 0.001);
-facePatch(darkMat, 0.005, 0.005, 0.005, -7, -4, 0.001);
-
-/* 口: 幅広のにっこり（側面図: 鼻先下から目の下まで伸びて口角が上がる） */
-headRibbon(darkMat,
-  [[-82, 10], [-66, 0], [-46, -8], [-24, -13], [0, -15], [24, -13], [46, -8], [66, 0], [82, 10]],
-  u => 0.0030 + 0.0015*Math.sin(Math.PI*u), 0.0045, 'mouth');
-facePatch(pinkMat, 0.018, 0.008, 0.006, 0, -21, 0.004, 'mouth_inner');
+  taper(0.013), 0.0022, 'mark_crown');
 
 /* ---- ひし形うろこハイライト（角丸ダイヤの薄押し出し） ---- */
 function diamondGeo(s){
